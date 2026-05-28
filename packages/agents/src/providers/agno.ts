@@ -2,12 +2,7 @@ import { HttpAgent } from "@ag-ui/client";
 import type { BaseEvent } from "@ag-ui/client";
 import type { Observable } from "rxjs";
 
-import type {
-  AgentConfig,
-  AgentProvider,
-  AgentRunner,
-  AgnoProviderConfig,
-} from "../types.js";
+import type { AgentConfig, AgentProvider, AgentRunner, AgnoProviderConfig } from "../types.ts";
 
 const DEFAULT_PATH = "/agui";
 
@@ -20,9 +15,7 @@ export const agnoAgentProvider: AgentProvider = {
   create: ({ config }) => createAgnoRunnerFromConfig(config),
 };
 
-function createAgnoRunnerFromConfig(
-  config: AgentConfig,
-): AgentRunner | undefined {
+function createAgnoRunnerFromConfig(config: AgentConfig): AgentRunner | undefined {
   const agno = config.agno;
   const baseURL = agno?.baseURL;
   if (!baseURL) {
@@ -36,8 +29,10 @@ function createAgnoRunnerFromConfig(
   });
 }
 
-function createAgnoRunner(options: Required<Pick<AgnoProviderConfig, "baseURL">> &
-  Pick<AgnoProviderConfig, "path" | "headers">): AgentRunner {
+function createAgnoRunner(
+  options: Required<Pick<AgnoProviderConfig, "baseURL">> &
+    Pick<AgnoProviderConfig, "path" | "headers">,
+): AgentRunner {
   const url = joinUrl(options.baseURL, options.path ?? DEFAULT_PATH);
 
   return (input, runnerOptions): Observable<BaseEvent> => {

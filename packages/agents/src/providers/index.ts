@@ -1,6 +1,6 @@
-import { agnoAgentProvider } from "./agno.js";
-import { mastraAgentProvider } from "./mastra.js";
-import type { AgentProvider } from "../types.js";
+import { agnoAgentProvider } from "./agno.ts";
+import { mastraAgentProvider } from "./mastra.ts";
+import type { AgentProvider } from "../types.ts";
 
 export {
   AGENT_PROVIDER_IDS,
@@ -10,9 +10,6 @@ export {
   isAgentProviderSelection,
   type AgentProviderId,
   type AgentProviderSelection,
-} from "./ids.js";
+} from "./ids.ts";
 
-export const agentProviders: AgentProvider[] = [
-  mastraAgentProvider,
-  agnoAgentProvider,
-];
+export const agentProviders: AgentProvider[] = [mastraAgentProvider, agnoAgentProvider];

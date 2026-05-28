@@ -1,14 +1,10 @@
-export { aguiEvent } from "./events.js";
+export { aguiEvent } from "./events.ts";
 export {
   AgentNotFoundError,
   AgentProviderConfigurationError,
   AgentProviderNotFoundError,
-} from "./errors.js";
-export {
-  createAgentRunner,
-  getAgentProvider,
-  listAgentProviders,
-} from "./registry.js";
+} from "./errors.ts";
+export { createAgentRunner, getAgentProvider, listAgentProviders } from "./registry.ts";
 export {
   AGENT_PROVIDER_IDS,
   AGENT_PROVIDER_SELECTIONS,
@@ -18,7 +14,7 @@ export {
   isAgentProviderSelection,
   type AgentProviderId,
   type AgentProviderSelection,
-} from "./providers/index.js";
+} from "./providers/index.ts";
 export type {
   AgentConfig,
   AgentExecutionConfig,
@@ -31,4 +27,4 @@ export type {
   CreateAgentRunnerOptions,
   LanguageModelConfig,
   MastraProviderConfig,
-} from "./types.js";
+} from "./types.ts";

@@ -1,9 +1,4 @@
-import {
-  EventType,
-  RunAgentInputSchema,
-  type AGUIEvent,
-  type RunAgentInput,
-} from "@ag-ui/core";
+import { EventType, RunAgentInputSchema, type AGUIEvent, type RunAgentInput } from "@ag-ui/core";
 import {
   aguiEvent,
   createAgentRunner,
@@ -20,9 +15,9 @@ interface AguiRoutesOptions {
   agentConfig: AgentConfig;
 }
 
-const streamResponseSchema = z.string().describe(
-  "AG-UI event stream. Each SSE data frame contains one AG-UI BaseEvent JSON payload.",
-);
+const streamResponseSchema = z
+  .string()
+  .describe("AG-UI event stream. Each SSE data frame contains one AG-UI BaseEvent JSON payload.");
 
 const RESOURCE_ID_HEADER = "x-resource-id";
 const AGENT_ID_HEADER = "x-agent-id";
@@ -36,8 +31,7 @@ export const aguiRoutes: FastifyPluginAsyncZod<AguiRoutesOptions> = async (
     schema: {
       tags: ["ag-ui"],
       summary: "Run AG-UI agent",
-      description:
-        "Accepts an AG-UI RunAgentInput payload and streams AG-UI BaseEvent objects.",
+      description: "Accepts an AG-UI RunAgentInput payload and streams AG-UI BaseEvent objects.",
       consumes: ["application/json"],
       produces: ["text/event-stream"],
       body: RunAgentInputSchema,
@@ -97,8 +91,7 @@ async function handleAguiRun(
             encoder.encodeBinary(
               aguiEvent({
                 type: EventType.RUN_ERROR,
-                message:
-                  error instanceof Error ? error.message : "Agent run failed",
+                message: error instanceof Error ? error.message : "Agent run failed",
                 code: "AGENT_RUN_FAILED",
               }),
             ),
@@ -123,9 +116,7 @@ async function handleAguiRun(
   }
 }
 
-function buildRunnerOptions(
-  request: FastifyRequest<{ Body: RunAgentInput }>,
-): AgentRunnerOptions {
+function buildRunnerOptions(request: FastifyRequest<{ Body: RunAgentInput }>): AgentRunnerOptions {
   const forwardedProps = request.body.forwardedProps;
 
   const headerResourceId = readStringHeader(request, RESOURCE_ID_HEADER);
@@ -150,21 +141,14 @@ function readStringHeader(
 ): string | undefined {
   const value = request.headers[name];
   const candidate = Array.isArray(value) ? value[0] : value;
-  return typeof candidate === "string" && candidate.length > 0
-    ? candidate
-    : undefined;
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
 }
 
-function readForwardedString(
-  forwardedProps: unknown,
-  key: string,
-): string | undefined {
+function readForwardedString(forwardedProps: unknown, key: string): string | undefined {
   if (typeof forwardedProps !== "object" || forwardedProps === null) {
     return undefined;
   }
   const record = forwardedProps as Record<string, unknown>;
   const candidate = record[key];
-  return typeof candidate === "string" && candidate.length > 0
-    ? candidate
-    : undefined;
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
 }

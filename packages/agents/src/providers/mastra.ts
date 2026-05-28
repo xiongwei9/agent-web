@@ -3,10 +3,7 @@ import { MastraAgent as AGUIMastraAgent } from "@ag-ui/mastra";
 import type { BaseEvent } from "@ag-ui/client";
 import type { Context, RunAgentInput } from "@ag-ui/core";
 import { Mastra } from "@mastra/core";
-import {
-  Agent as LocalMastraAgent,
-  type ToolsInput as MastraToolsInput,
-} from "@mastra/core/agent";
+import { Agent as LocalMastraAgent, type ToolsInput as MastraToolsInput } from "@mastra/core/agent";
 import { RequestContext } from "@mastra/core/request-context";
 import type { PublicSchema } from "@mastra/core/schema";
 import { createTool as createMastraTool } from "@mastra/core/tools";
@@ -14,26 +11,22 @@ import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
 import type { Observable } from "rxjs";
 
-import {
-  agentSpecs,
-  defaultAgentId,
-  type AgentSpec,
-} from "../agents/index.js";
-import { AgentNotFoundError } from "../errors.js";
+import { agentSpecs, defaultAgentId, type AgentSpec } from "../agents/index.ts";
+import { AgentNotFoundError } from "../errors.ts";
 import type {
   AgentConfig,
   AgentProvider,
   AgentRunner,
   LanguageModelConfig,
   MastraProviderConfig,
-} from "../types.js";
+} from "../types.ts";
 import {
   contextToText,
   DEFAULT_OPENAI_MODEL,
   isRecord,
   localAgentTools,
   normalizeToolParameters,
-} from "./shared.js";
+} from "./shared.ts";
 
 const AGUI_CONTEXT_KEY = "ag-ui";
 
@@ -147,9 +140,7 @@ function buildLocalAgent(args: {
   });
 }
 
-function createMastraAgentFromConfig(
-  config: AgentConfig,
-): AgentRunner | undefined {
+function createMastraAgentFromConfig(config: AgentConfig): AgentRunner | undefined {
   const languageModel = config.languageModel;
   if (!languageModel?.apiKey) {
     return undefined;

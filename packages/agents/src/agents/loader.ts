@@ -4,12 +4,9 @@ import { fileURLToPath } from "node:url";
 
 import { parse as parseYAML } from "yaml";
 
-import type { AgentSpec } from "./types.js";
+import type { AgentSpec } from "./types.ts";
 
-const DEFINITIONS_DIR = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "definitions",
-);
+const DEFINITIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), "definitions");
 
 /**
  * Reads every `*.md` file in `./definitions/` and parses it as an agent
@@ -34,9 +31,7 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 function parseAgentMarkdown(filename: string, raw: string): AgentSpec {
   const match = raw.match(FRONTMATTER_RE);
   if (!match) {
-    throw new Error(
-      `${filename}: missing YAML frontmatter delimited by '---' lines.`,
-    );
+    throw new Error(`${filename}: missing YAML frontmatter delimited by '---' lines.`);
   }
   const [, head, body] = match;
 
@@ -48,17 +43,13 @@ function parseAgentMarkdown(filename: string, raw: string): AgentSpec {
     throw new Error(`${filename}: invalid YAML frontmatter — ${detail}`);
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
-      `${filename}: frontmatter must be a YAML mapping (key/value object).`,
-    );
+    throw new Error(`${filename}: frontmatter must be a YAML mapping (key/value object).`);
   }
 
   const meta = parsed as Record<string, unknown>;
   const id = meta.id;
   if (typeof id !== "string" || id.length === 0) {
-    throw new Error(
-      `${filename}: frontmatter is missing required \`id\` (non-empty string).`,
-    );
+    throw new Error(`${filename}: frontmatter is missing required \`id\` (non-empty string).`);
   }
 
   const instructions = body?.trim();

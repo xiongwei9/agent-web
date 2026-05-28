@@ -11,19 +11,16 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 
-import { aguiRoutes } from "./routes/agui.js";
-import type { AppConfig } from "./config.js";
-import { healthRoutes } from "./routes/health.js";
+import { aguiRoutes } from "./routes/agui.ts";
+import type { AppConfig } from "./config.ts";
+import { healthRoutes } from "./routes/health.ts";
 
 export interface BuildAppOptions {
   config: AppConfig;
   fastifyOptions?: FastifyServerOptions;
 }
 
-export async function buildApp({
-  config,
-  fastifyOptions = {},
-}: BuildAppOptions) {
+export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions) {
   const app = fastify(fastifyOptions).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
@@ -48,8 +45,7 @@ export async function buildApp({
       });
     }
 
-    const fallbackError =
-      error instanceof Error ? error : new Error("Unexpected server error");
+    const fallbackError = error instanceof Error ? error : new Error("Unexpected server error");
     const maybeStatusCode =
       typeof error === "object" && error !== null && "statusCode" in error
         ? error.statusCode

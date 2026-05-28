@@ -1,5 +1,5 @@
-import { loadAllMarkdownAgents } from "./loader.js";
-import type { AgentSpec } from "./types.js";
+import { loadAllMarkdownAgents } from "./loader.ts";
+import type { AgentSpec } from "./types.ts";
 
 /**
  * Agents are defined as `*.md` files in this directory with YAML frontmatter
@@ -13,9 +13,7 @@ import type { AgentSpec } from "./types.js";
 const SPECS: readonly AgentSpec[] = loadAllMarkdownAgents();
 
 if (SPECS.length === 0) {
-  throw new Error(
-    "No agent definitions found in packages/agents/src/agents (*.md).",
-  );
+  throw new Error("No agent definitions found in packages/agents/src/agents (*.md).");
 }
 
 export const agentSpecs: readonly AgentSpec[] = SPECS;
@@ -23,4 +21,4 @@ export const agentSpecs: readonly AgentSpec[] = SPECS;
 const FALLBACK = SPECS.find((spec) => spec.id === "default") ?? SPECS[0]!;
 export const defaultAgentId: string = FALLBACK.id;
 
-export type { AgentSpec } from "./types.js";
+export type { AgentSpec } from "./types.ts";

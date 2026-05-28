@@ -1,10 +1,7 @@
 import type { BaseEvent } from "@ag-ui/client";
 import type { RunAgentInput } from "@ag-ui/core";
 import type { Observable } from "rxjs";
-import type {
-  AgentProviderId,
-  AgentProviderSelection,
-} from "./providers/ids.js";
+import type { AgentProviderId, AgentProviderSelection } from "./providers/ids.ts";
 
 export interface AgentRunnerOptions {
   /**

@@ -1,22 +1,13 @@
-import {
-  AgentProviderConfigurationError,
-  AgentProviderNotFoundError,
-} from "./errors.js";
-import {
-  AUTO_AGENT_PROVIDER,
-  agentProviders,
-  type AgentProviderId,
-} from "./providers/index.js";
+import { AgentProviderConfigurationError, AgentProviderNotFoundError } from "./errors.ts";
+import { AUTO_AGENT_PROVIDER, agentProviders, type AgentProviderId } from "./providers/index.ts";
 import type {
   AgentProvider,
   AgentProviderSummary,
   AgentRunner,
   CreateAgentRunnerOptions,
-} from "./types.js";
+} from "./types.ts";
 
-export function createAgentRunner({
-  config = {},
-}: CreateAgentRunnerOptions = {}): AgentRunner {
+export function createAgentRunner({ config = {} }: CreateAgentRunnerOptions = {}): AgentRunner {
   const provider = config.provider ?? AUTO_AGENT_PROVIDER;
 
   if (provider === AUTO_AGENT_PROVIDER) {
@@ -55,12 +46,10 @@ export function getAgentProvider(providerId: AgentProviderId): AgentProvider {
 }
 
 export function listAgentProviders(): AgentProviderSummary[] {
-  return agentProviders.map(
-    ({ id, label, description, configurationHint }) => ({
-      id,
-      label,
-      description,
-      configurationHint,
-    }),
-  );
+  return agentProviders.map(({ id, label, description, configurationHint }) => ({
+    id,
+    label,
+    description,
+    configurationHint,
+  }));
 }
