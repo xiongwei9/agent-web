@@ -1,5 +1,6 @@
 export { aguiEvent } from "./events.js";
 export {
+  AgentNotFoundError,
   AgentProviderConfigurationError,
   AgentProviderNotFoundError,
 } from "./errors.js";

@@ -14,6 +14,12 @@ import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
 import type { Observable } from "rxjs";
 
+import {
+  agentSpecs,
+  defaultAgentId,
+  type AgentSpec,
+} from "../agents/index.js";
+import { AgentNotFoundError } from "../errors.js";
 import type {
   AgentConfig,
   AgentProvider,
@@ -29,10 +35,10 @@ import {
   normalizeToolParameters,
 } from "./shared.js";
 
-const AGENT_ID = "agui-mastra-agent";
 const AGUI_CONTEXT_KEY = "ag-ui";
 
 type MastraToolSchema = PublicSchema<Record<string, unknown>>;
+type OpenAIFactory = ReturnType<typeof createOpenAI>;
 
 type ModelBackedAgentOptions = LanguageModelConfig & {
   apiKey: string;
@@ -53,7 +59,7 @@ function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
     apiKey: options.apiKey,
     baseURL: options.baseURL,
   });
-  const model = options.model ?? DEFAULT_OPENAI_MODEL;
+  const defaultModel = options.model ?? DEFAULT_OPENAI_MODEL;
 
   const storageUrl = options.mastra?.storageUrl;
   const storage = storageUrl
@@ -66,27 +72,17 @@ function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
       })
     : undefined;
 
-  const localAgent = new LocalMastraAgent({
-    id: AGENT_ID,
-    name: "AG-UI Mastra Agent",
-    instructions: async ({ requestContext }) => {
-      const aguiCtx = requestContext.get(AGUI_CONTEXT_KEY);
-      const ctxText =
-        isRecord(aguiCtx) && Array.isArray(aguiCtx.context)
-          ? contextToText(aguiCtx.context as Context[])
-          : undefined;
-      return ctxText ?? "You are a helpful assistant.";
-    },
-    model: openai(model),
-    tools: toMastraLocalTools(),
-    ...(memory ? { memory } : {}),
-  });
+  const agents: Record<string, LocalMastraAgent> = {};
+  for (const spec of agentSpecs) {
+    agents[spec.id] = buildLocalAgent({ spec, openai, defaultModel, memory });
+  }
+  const agentIds = Object.keys(agents);
 
   // One Mastra instance per provider (per process). Keeps storage, agent
   // registry, and memory long-lived; per-request work happens in the runner
   // below via MastraAgent.getLocalAgent.
   const mastra = new Mastra({
-    agents: { [AGENT_ID]: localAgent },
+    agents,
     ...(storage ? { storage } : {}),
   });
 
@@ -98,9 +94,15 @@ function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
       }
     }
 
+    const requestedAgentId = runnerOptions?.agentId;
+    if (requestedAgentId && !agents[requestedAgentId]) {
+      throw new AgentNotFoundError(requestedAgentId, agentIds);
+    }
+    const agentId = requestedAgentId ?? defaultAgentId;
+
     const aguiAgent = AGUIMastraAgent.getLocalAgent({
       mastra,
-      agentId: AGENT_ID,
+      agentId,
       resourceId: runnerOptions?.resourceId ?? input.threadId,
       requestContext,
     });
@@ -115,6 +117,34 @@ function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
 
     return aguiAgent.run(filteredInput);
   };
+}
+
+function buildLocalAgent(args: {
+  spec: AgentSpec;
+  openai: OpenAIFactory;
+  defaultModel: string;
+  memory: Memory | undefined;
+}): LocalMastraAgent {
+  const { spec, openai, defaultModel, memory } = args;
+  const persona = spec.instructions;
+  return new LocalMastraAgent({
+    id: spec.id,
+    name: spec.name ?? spec.id,
+    instructions: async ({ requestContext }) => {
+      const aguiCtx = requestContext.get(AGUI_CONTEXT_KEY);
+      const ctxText =
+        isRecord(aguiCtx) && Array.isArray(aguiCtx.context)
+          ? contextToText(aguiCtx.context as Context[])
+          : undefined;
+      if (persona) {
+        return ctxText ? `${persona}\n\n${ctxText}` : persona;
+      }
+      return ctxText ?? "You are a helpful assistant.";
+    },
+    model: openai(spec.model ?? defaultModel),
+    tools: toMastraLocalTools(),
+    ...(memory ? { memory } : {}),
+  });
 }
 
 function createMastraAgentFromConfig(

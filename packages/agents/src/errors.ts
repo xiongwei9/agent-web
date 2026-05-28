@@ -18,3 +18,12 @@ export class AgentProviderConfigurationError extends Error {
     this.name = "AgentProviderConfigurationError";
   }
 }
+
+export class AgentNotFoundError extends Error {
+  constructor(agentId: string, availableAgentIds: string[]) {
+    super(
+      `Agent "${agentId}" is not registered. Available agents: ${availableAgentIds.join(", ")}.`,
+    );
+    this.name = "AgentNotFoundError";
+  }
+}

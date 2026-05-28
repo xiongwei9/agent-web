@@ -16,7 +16,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/agents/definitions && cp src/agents/definitions/*.md dist/agents/definitions/",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -29,6 +29,7 @@
     "@mastra/libsql": "^1.11.1",
     "@mastra/memory": "^1.20.0",
     "rxjs": "7.8.1",
+    "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

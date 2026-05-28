@@ -25,6 +25,7 @@ const streamResponseSchema = z.string().describe(
 );
 
 const RESOURCE_ID_HEADER = "x-resource-id";
+const AGENT_ID_HEADER = "x-agent-id";
 
 export const aguiRoutes: FastifyPluginAsyncZod<AguiRoutesOptions> = async (
   app,
@@ -125,25 +126,45 @@ async function handleAguiRun(
 function buildRunnerOptions(
   request: FastifyRequest<{ Body: RunAgentInput }>,
 ): AgentRunnerOptions {
-  const headerValue = request.headers[RESOURCE_ID_HEADER];
-  const headerResourceId = Array.isArray(headerValue)
-    ? headerValue[0]
-    : headerValue;
-
   const forwardedProps = request.body.forwardedProps;
-  const forwardedResourceId =
-    typeof forwardedProps === "object" &&
-    forwardedProps !== null &&
-    "resourceId" in forwardedProps &&
-    typeof (forwardedProps as { resourceId?: unknown }).resourceId === "string"
-      ? (forwardedProps as { resourceId: string }).resourceId
-      : undefined;
+
+  const headerResourceId = readStringHeader(request, RESOURCE_ID_HEADER);
+  const forwardedResourceId = readForwardedString(forwardedProps, "resourceId");
+
+  const headerAgentId = readStringHeader(request, AGENT_ID_HEADER);
+  const forwardedAgentId = readForwardedString(forwardedProps, "agentId");
 
   return {
     resourceId: headerResourceId ?? forwardedResourceId,
+    agentId: headerAgentId ?? forwardedAgentId,
     requestContext: {
       headers: request.headers,
       forwardedProps,
     },
   };
+}
+
+function readStringHeader(
+  request: FastifyRequest<{ Body: RunAgentInput }>,
+  name: string,
+): string | undefined {
+  const value = request.headers[name];
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return typeof candidate === "string" && candidate.length > 0
+    ? candidate
+    : undefined;
+}
+
+function readForwardedString(
+  forwardedProps: unknown,
+  key: string,
+): string | undefined {
+  if (typeof forwardedProps !== "object" || forwardedProps === null) {
+    return undefined;
+  }
+  const record = forwardedProps as Record<string, unknown>;
+  const candidate = record[key];
+  return typeof candidate === "string" && candidate.length > 0
+    ? candidate
+    : undefined;
 }

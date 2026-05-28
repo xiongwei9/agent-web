@@ -14,6 +14,12 @@ export interface AgentRunnerOptions {
    */
   resourceId?: string;
   /**
+   * Selects which registered agent should handle this run. Currently honored
+   * by the Mastra provider when `MastraProviderConfig.agents` is configured.
+   * Unknown ids cause the runner to error so misconfiguration surfaces fast.
+   */
+  agentId?: string;
+  /**
    * Free-form per-request key/value bag exposed to Mastra tools via
    * `RequestContext`. Other providers may ignore it.
    */
