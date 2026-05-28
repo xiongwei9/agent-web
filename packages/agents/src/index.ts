@@ -26,6 +26,7 @@ export type {
   AgentProviderSummary,
   AgentRunner,
   AgentRunnerOptions,
+  AgnoProviderConfig,
   CreateAgentRunnerOptions,
   LanguageModelConfig,
   MastraProviderConfig,

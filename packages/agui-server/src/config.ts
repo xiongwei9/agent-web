@@ -37,6 +37,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       mastra: {
         storageUrl: emptyToUndefined(env.MASTRA_STORAGE_URL),
       },
+      agno: {
+        baseURL: emptyToUndefined(env.AGNO_BASE_URL),
+        path: emptyToUndefined(env.AGNO_PATH),
+      },
     },
   };
 }

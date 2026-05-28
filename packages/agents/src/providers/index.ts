@@ -1,3 +1,4 @@
+import { agnoAgentProvider } from "./agno.js";
 import { mastraAgentProvider } from "./mastra.js";
 import type { AgentProvider } from "../types.js";
 
@@ -11,4 +12,7 @@ export {
   type AgentProviderSelection,
 } from "./ids.js";
 
-export const agentProviders: AgentProvider[] = [mastraAgentProvider];
+export const agentProviders: AgentProvider[] = [
+  mastraAgentProvider,
+  agnoAgentProvider,
+];

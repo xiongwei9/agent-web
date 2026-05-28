@@ -45,11 +45,25 @@ export interface MastraProviderConfig {
   storageUrl?: string;
 }
 
+export interface AgnoProviderConfig {
+  /**
+   * Base URL of the Python agno service exposing an AG-UI endpoint. The
+   * provider POSTs `RunAgentInput` to `${baseURL}${path}` and streams the
+   * resulting AG-UI events.
+   */
+  baseURL?: string;
+  /** Path on the agno service. Defaults to `/agui`. */
+  path?: string;
+  /** Extra headers forwarded with each request (e.g. auth tokens). */
+  headers?: Record<string, string>;
+}
+
 export interface AgentConfig {
   provider?: AgentProviderSelection;
   languageModel?: LanguageModelConfig;
   execution?: AgentExecutionConfig;
   mastra?: MastraProviderConfig;
+  agno?: AgnoProviderConfig;
 }
 
 export interface AgentProviderCreateContext {
