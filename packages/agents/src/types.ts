@@ -1,10 +1,29 @@
-import type { AGUIEvent, RunAgentInput } from "@ag-ui/core";
+import type { BaseEvent } from "@ag-ui/client";
+import type { RunAgentInput } from "@ag-ui/core";
+import type { Observable } from "rxjs";
 import type {
   AgentProviderId,
   AgentProviderSelection,
 } from "./providers/ids.js";
 
-export type AgentRunner = (input: RunAgentInput) => AsyncIterable<AGUIEvent>;
+export interface AgentRunnerOptions {
+  /**
+   * Mastra `resourceId` — the cross-thread identity (e.g. user id). Providers
+   * that don't use Mastra ignore this field. Falls back to `input.threadId`
+   * downstream when unset.
+   */
+  resourceId?: string;
+  /**
+   * Free-form per-request key/value bag exposed to Mastra tools via
+   * `RequestContext`. Other providers may ignore it.
+   */
+  requestContext?: Record<string, unknown>;
+}
+
+export type AgentRunner = (
+  input: RunAgentInput,
+  options?: AgentRunnerOptions,
+) => Observable<BaseEvent>;
 
 export interface LanguageModelConfig {
   apiKey?: string;
@@ -16,10 +35,21 @@ export interface AgentExecutionConfig {
   maxToolIterations?: number;
 }
 
+export interface MastraProviderConfig {
+  /**
+   * libsql connection URL passed to `LibSQLStore`. Examples:
+   * `file:./mastra.db`, `:memory:`, `libsql://<host>?authToken=...`.
+   * When unset, Mastra is constructed without storage and the agent runs
+   * without thread/working-memory persistence.
+   */
+  storageUrl?: string;
+}
+
 export interface AgentConfig {
   provider?: AgentProviderSelection;
   languageModel?: LanguageModelConfig;
   execution?: AgentExecutionConfig;
+  mastra?: MastraProviderConfig;
 }
 
 export interface AgentProviderCreateContext {

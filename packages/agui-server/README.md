@@ -9,7 +9,7 @@ Provider registrations are maintained in `packages/agents/src/providers/index.ts
 The server owns environment loading and passes a single agent config object into
 the agent package.
 
-Set `OPENAI_API_KEY` to enable the OpenAI streaming chat agent. With
+Set `OPENAI_API_KEY` to enable the OpenAI-backed agents. With
 `AGENT_PROVIDER=auto`, the server uses the first configured provider. If no
 provider is configured, startup fails with a configuration error.
 
@@ -19,13 +19,13 @@ OPENAI_API_KEY=sk-... pnpm --filter @ai-chat/agui-server dev
 
 Optional configuration:
 
-- `AGENT_PROVIDER` defaults to `auto`; supported values are `auto`, `openai-chat`
+- `AGENT_PROVIDER` defaults to `auto`; supported values are `auto`, `mastra`
 - `OPENAI_MODEL` defaults to `gpt-4.1-mini`
 - `OPENAI_BASE_URL` can point to an OpenAI-compatible endpoint
 - `AGENT_MAX_TOOL_ITERATIONS` defaults to `4`
 
-The OpenAI agent maps AG-UI `messages` and `tools` into Chat Completions input,
-then streams model text and function tool calls back as AG-UI events.
+The providers map AG-UI `messages` and `tools` into their underlying agent
+runtime, then stream model text and function tool calls back as AG-UI events.
 
 ## Scripts
 

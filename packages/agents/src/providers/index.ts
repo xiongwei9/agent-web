@@ -1,4 +1,4 @@
-import { openAIChatAgentProvider } from "./openai-chat.js";
+import { mastraAgentProvider } from "./mastra.js";
 import type { AgentProvider } from "../types.js";
 
 export {
@@ -11,6 +11,4 @@ export {
   type AgentProviderSelection,
 } from "./ids.js";
 
-export const agentProviders: AgentProvider[] = [
-  openAIChatAgentProvider,
-];
+export const agentProviders: AgentProvider[] = [mastraAgentProvider];

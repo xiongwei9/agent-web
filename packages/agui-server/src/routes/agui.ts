@@ -9,6 +9,7 @@ import {
   createAgentRunner,
   type AgentConfig,
   type AgentRunner,
+  type AgentRunnerOptions,
 } from "@ai-chat/agents";
 import { EventEncoder } from "@ag-ui/encoder";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -22,6 +23,8 @@ interface AguiRoutesOptions {
 const streamResponseSchema = z.string().describe(
   "AG-UI event stream. Each SSE data frame contains one AG-UI BaseEvent JSON payload.",
 );
+
+const RESOURCE_ID_HEADER = "x-resource-id";
 
 export const aguiRoutes: FastifyPluginAsyncZod<AguiRoutesOptions> = async (
   app,
@@ -67,37 +70,80 @@ async function handleAguiRun(
     "x-accel-buffering": "no",
   });
 
-  try {
-    await writeAguiEventStream(reply, encoder, runAgent(input));
-  } catch (error) {
-    if (!reply.raw.destroyed) {
-      reply.raw.write(
-        encoder.encodeBinary(
-          aguiEvent({
-            type: EventType.RUN_ERROR,
-            message: error instanceof Error ? error.message : "Agent run failed",
-            code: "AGENT_RUN_FAILED",
-          }),
-        ),
-      );
-    }
-  } finally {
-    if (!reply.raw.destroyed) {
-      reply.raw.end();
-    }
+  const runnerOptions = buildRunnerOptions(request);
+  const events$ = runAgent(input, runnerOptions);
+
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+
+    const subscription = events$.subscribe({
+      next: (event) => {
+        if (reply.raw.destroyed) {
+          subscription.unsubscribe();
+          settle();
+          return;
+        }
+        reply.raw.write(encoder.encodeBinary(event as AGUIEvent));
+      },
+      error: (error: unknown) => {
+        if (!reply.raw.destroyed) {
+          reply.raw.write(
+            encoder.encodeBinary(
+              aguiEvent({
+                type: EventType.RUN_ERROR,
+                message:
+                  error instanceof Error ? error.message : "Agent run failed",
+                code: "AGENT_RUN_FAILED",
+              }),
+            ),
+          );
+        }
+        settle();
+      },
+      complete: () => {
+        settle();
+      },
+    });
+
+    // Stop the agent stream when the client disconnects.
+    reply.raw.on("close", () => {
+      subscription.unsubscribe();
+      settle();
+    });
+  });
+
+  if (!reply.raw.destroyed) {
+    reply.raw.end();
   }
 }
 
-async function writeAguiEventStream(
-  reply: FastifyReply,
-  encoder: EventEncoder,
-  events: AsyncIterable<AGUIEvent>,
-) {
-  for await (const event of events) {
-    if (reply.raw.destroyed) {
-      return;
-    }
+function buildRunnerOptions(
+  request: FastifyRequest<{ Body: RunAgentInput }>,
+): AgentRunnerOptions {
+  const headerValue = request.headers[RESOURCE_ID_HEADER];
+  const headerResourceId = Array.isArray(headerValue)
+    ? headerValue[0]
+    : headerValue;
 
-    reply.raw.write(encoder.encodeBinary(event));
-  }
+  const forwardedProps = request.body.forwardedProps;
+  const forwardedResourceId =
+    typeof forwardedProps === "object" &&
+    forwardedProps !== null &&
+    "resourceId" in forwardedProps &&
+    typeof (forwardedProps as { resourceId?: unknown }).resourceId === "string"
+      ? (forwardedProps as { resourceId: string }).resourceId
+      : undefined;
+
+  return {
+    resourceId: headerResourceId ?? forwardedResourceId,
+    requestContext: {
+      headers: request.headers,
+      forwardedProps,
+    },
+  };
 }

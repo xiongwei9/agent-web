@@ -34,6 +34,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
           env.AGENT_MAX_TOOL_ITERATIONS ?? env.OPENAI_MAX_TOOL_ITERATIONS,
         ),
       },
+      mastra: {
+        storageUrl: emptyToUndefined(env.MASTRA_STORAGE_URL),
+      },
     },
   };
 }

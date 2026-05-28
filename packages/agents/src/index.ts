@@ -25,6 +25,8 @@ export type {
   AgentProviderCreateContext,
   AgentProviderSummary,
   AgentRunner,
+  AgentRunnerOptions,
   CreateAgentRunnerOptions,
   LanguageModelConfig,
+  MastraProviderConfig,
 } from "./types.js";
