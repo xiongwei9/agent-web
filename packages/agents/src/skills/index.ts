@@ -12,10 +12,11 @@ import { fileURLToPath } from "node:url";
  *
  * It is deliberately decoupled from agents and providers: it exposes *where*
  * the skills live, not *how* they are loaded. Each provider wires these skills
- * up using its framework's native skill support (e.g. the Mastra provider feeds
- * `SKILLS_BASE_PATH` + `SKILL_DEFINITION_PATHS` to a Mastra `Workspace` /
- * `LocalSkillSource`). Maintain skills by editing the skill folders here; no
- * provider or agent code changes are needed.
+ * up using its own mechanism — the Mastra provider feeds `SKILLS_BASE_PATH` +
+ * `SKILL_DEFINITION_PATHS` to a Mastra `Workspace` / `LocalSkillSource`, while
+ * the native provider uses {@link loadSkills} and the progressive-disclosure
+ * helpers below to drive a hand-written skill toolset. Maintain skills by
+ * editing the skill folders here; no provider or agent code changes are needed.
  *
  * Build note: the compiled package must mirror these skill folders next to the
  * built `index.js` so it can read the same files. The package build script
@@ -31,3 +32,11 @@ export const SKILLS_BASE_PATH: string = dirname(fileURLToPath(import.meta.url));
  * skills directory itself holds one folder per skill (no nesting level).
  */
 export const SKILL_DEFINITION_PATHS: readonly string[] = ["."];
+
+export {
+  loadSkills,
+  readSkillBody,
+  listSkillFiles,
+  resolveWithinSkill,
+  type SkillSpec,
+} from "./loader.ts";
