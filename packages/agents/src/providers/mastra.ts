@@ -1,4 +1,3 @@
-import { createOpenAI } from "@ai-sdk/openai";
 import { MastraAgent as AGUIMastraAgent } from "@ag-ui/mastra";
 import type { BaseEvent } from "@ag-ui/client";
 import type { Context, RunAgentInput } from "@ag-ui/core";
@@ -9,33 +8,37 @@ import type { PublicSchema } from "@mastra/core/schema";
 import { createTool as createMastraTool } from "@mastra/core/tools";
 import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
-import type { Observable } from "rxjs";
+import { from, mergeMap, type Observable } from "rxjs";
 
 import { agentSpecs, defaultAgentId, type AgentSpec } from "../agents/index.ts";
 import { AgentNotFoundError } from "../errors.ts";
 import type {
   AgentConfig,
+  AgentExecutionConfig,
   AgentProvider,
   AgentRunner,
   LanguageModelConfig,
   MastraProviderConfig,
+  McpConfig,
 } from "../types.ts";
 import {
-  contextToText,
-  DEFAULT_OPENAI_MODEL,
-  isRecord,
-  localAgentTools,
-  normalizeToolParameters,
-} from "./shared.ts";
+  createLanguageModel,
+  isLanguageModelConfigured,
+  resolveLanguageModelConfig,
+  type ResolvedLanguageModelConfig,
+} from "./language-model.ts";
+import { createMcpToolRegistry, type McpToolRegistry } from "./mcp.ts";
+import { contextToText, isRecord, localAgentTools, normalizeToolParameters } from "./shared.ts";
 
 const AGUI_CONTEXT_KEY = "ag-ui";
 
 type MastraToolSchema = PublicSchema<Record<string, unknown>>;
-type OpenAIFactory = ReturnType<typeof createOpenAI>;
 
 type ModelBackedAgentOptions = LanguageModelConfig & {
   apiKey: string;
+  execution?: AgentExecutionConfig;
   mastra?: MastraProviderConfig;
+  mcp?: McpConfig;
 };
 
 export const mastraAgentProvider: AgentProvider = {
@@ -43,16 +46,14 @@ export const mastraAgentProvider: AgentProvider = {
   label: "Mastra Agent",
   description: "Mastra agent runner via @ag-ui/mastra adapter.",
   configurationHint:
-    "Set OPENAI_API_KEY to enable it. Optionally set MASTRA_STORAGE_URL for persistent memory/HITL.",
+    "Set MODEL_API_KEY to enable it. Optionally set MASTRA_STORAGE_URL for persistent memory/HITL.",
   create: ({ config }) => createMastraAgentFromConfig(config),
 };
 
 function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
-  const openai = createOpenAI({
-    apiKey: options.apiKey,
-    baseURL: options.baseURL,
-  });
-  const defaultModel = options.model ?? DEFAULT_OPENAI_MODEL;
+  const languageModel = resolveLanguageModelConfig(options);
+  const defaultModel = languageModel.model;
+  const mcpTools = createMcpToolRegistry(options.mcp);
 
   const storageUrl = options.mastra?.storageUrl;
   const storage = storageUrl
@@ -67,7 +68,14 @@ function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
 
   const agents: Record<string, LocalMastraAgent> = {};
   for (const spec of agentSpecs) {
-    agents[spec.id] = buildLocalAgent({ spec, openai, defaultModel, memory });
+    agents[spec.id] = buildLocalAgent({
+      spec,
+      defaultModel,
+      languageModel,
+      memory,
+      mcpTools,
+      execution: options.execution,
+    });
   }
   const agentIds = Object.keys(agents);
 
@@ -103,23 +111,33 @@ function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
     // Tools we execute server-side via Mastra's tool registry must not be
     // re-sent as clientTools — otherwise Mastra would emit AG-UI tool calls
     // for them and stall waiting on the client to respond.
-    const filteredInput: RunAgentInput = {
-      ...input,
-      tools: input.tools.filter((tool) => !localAgentTools.has(tool.name)),
-    };
+    return from(getServerSideToolNames(mcpTools)).pipe(
+      mergeMap((serverSideToolNames) => {
+        const filteredInput: RunAgentInput = {
+          ...input,
+          tools: input.tools.filter((tool) => !serverSideToolNames.has(tool.name)),
+        };
 
-    return aguiAgent.run(filteredInput);
+        return aguiAgent.run(filteredInput);
+      }),
+    );
   };
 }
 
 function buildLocalAgent(args: {
   spec: AgentSpec;
-  openai: OpenAIFactory;
   defaultModel: string;
+  languageModel: ResolvedLanguageModelConfig;
   memory: Memory | undefined;
+  mcpTools: McpToolRegistry | undefined;
+  execution: AgentExecutionConfig | undefined;
 }): LocalMastraAgent {
-  const { spec, openai, defaultModel, memory } = args;
+  const { spec, defaultModel, languageModel, memory, mcpTools, execution } = args;
   const persona = spec.instructions;
+  const defaultOptions = execution?.maxToolIterations
+    ? { maxSteps: execution.maxToolIterations }
+    : undefined;
+
   return new LocalMastraAgent({
     id: spec.id,
     name: spec.name ?? spec.id,
@@ -134,24 +152,49 @@ function buildLocalAgent(args: {
       }
       return ctxText ?? "You are a helpful assistant.";
     },
-    model: openai(spec.model ?? defaultModel),
-    tools: toMastraLocalTools(),
+    model: createLanguageModel({
+      ...languageModel,
+      model: spec.model ?? defaultModel,
+    }).model,
+    tools: mcpTools
+      ? async () => ({
+          ...toMastraLocalTools(),
+          ...(await mcpTools.getTools()),
+        })
+      : toMastraLocalTools(),
+    ...(defaultOptions ? { defaultOptions, defaultStreamOptionsLegacy: defaultOptions } : {}),
     ...(memory ? { memory } : {}),
   });
 }
 
 function createMastraAgentFromConfig(config: AgentConfig): AgentRunner | undefined {
   const languageModel = config.languageModel;
-  if (!languageModel?.apiKey) {
+  if (!isLanguageModelConfigured(languageModel)) {
     return undefined;
   }
 
   return createMastraAgent({
     apiKey: languageModel.apiKey,
+    provider: languageModel.provider,
     baseURL: languageModel.baseURL,
+    headers: languageModel.headers,
     model: languageModel.model,
+    api: languageModel.api,
+    execution: config.execution,
     mastra: config.mastra,
+    mcp: config.mcp,
   });
+}
+
+async function getServerSideToolNames(mcpTools: McpToolRegistry | undefined): Promise<Set<string>> {
+  const names = new Set(localAgentTools.keys());
+  if (mcpTools) {
+    for (const name of await mcpTools.getToolNames()) {
+      names.add(name);
+    }
+  }
+
+  return names;
 }
 
 function toMastraLocalTools(): MastraToolsInput {

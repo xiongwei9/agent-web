@@ -1,6 +1,7 @@
 import type { Context } from "@ag-ui/core";
 
-export const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
+export const DEFAULT_LANGUAGE_MODEL = "gpt-4.1-mini";
+export const DEFAULT_OPENAI_MODEL = DEFAULT_LANGUAGE_MODEL;
 
 export interface LocalAgentTool {
   description: string;

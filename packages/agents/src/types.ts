@@ -28,9 +28,30 @@ export type AgentRunner = (
   options?: AgentRunnerOptions,
 ) => Observable<BaseEvent>;
 
+export const LANGUAGE_MODEL_PROVIDERS = [
+  "openai",
+  "openai-compatible",
+  "anthropic",
+  "google",
+] as const;
+
+export type LanguageModelProvider = (typeof LANGUAGE_MODEL_PROVIDERS)[number];
+export type OpenAIModelApi = "responses" | "chat";
+
 export interface LanguageModelConfig {
+  /**
+   * Selects the SDK/provider used to create the Mastra model. When unset,
+   * applications may infer it from environment variables or config shape.
+   */
+  provider?: LanguageModelProvider;
+  /**
+   * OpenAI SDK API mode. Defaults to `responses` for official OpenAI and
+   * `chat` for OpenAI-compatible gateways.
+   */
+  api?: OpenAIModelApi;
   apiKey?: string;
   baseURL?: string;
+  headers?: Record<string, string>;
   model?: string;
 }
 
@@ -46,6 +67,44 @@ export interface MastraProviderConfig {
    * without thread/working-memory persistence.
    */
   storageUrl?: string;
+}
+
+export interface McpConfig {
+  /**
+   * MCP servers exposed to model-backed agents as server-side tools. Object
+   * keys become the server namespace used in generated tool names.
+   */
+  servers?: Record<string, McpServerConfig>;
+}
+
+export type McpServerConfig =
+  | McpStdioServerConfig
+  | McpStreamableHttpServerConfig
+  | McpSseServerConfig;
+
+export interface McpBaseServerConfig {
+  /** Per-request MCP protocol timeout in milliseconds. */
+  timeoutMs?: number;
+}
+
+export interface McpStdioServerConfig extends McpBaseServerConfig {
+  transport?: "stdio";
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+}
+
+export interface McpStreamableHttpServerConfig extends McpBaseServerConfig {
+  transport: "http";
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export interface McpSseServerConfig extends McpBaseServerConfig {
+  transport: "sse";
+  url: string;
+  headers?: Record<string, string>;
 }
 
 export interface AgnoProviderConfig {
@@ -66,6 +125,7 @@ export interface AgentConfig {
   languageModel?: LanguageModelConfig;
   execution?: AgentExecutionConfig;
   mastra?: MastraProviderConfig;
+  mcp?: McpConfig;
   agno?: AgnoProviderConfig;
 }
 
