@@ -16,7 +16,12 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/agents/definitions && cp src/agents/definitions/*.md dist/agents/definitions/",
+    "clean": "rm -rf dist",
+    "compile": "tsc -p tsconfig.json",
+    "copy:agents": "mkdir -p dist/agents/definitions && cp src/agents/definitions/*.md dist/agents/definitions/",
+    "copy:skills": "mkdir -p dist/skills && find src/skills -mindepth 1 -maxdepth 1 -type d -exec cp -R {} dist/skills/ ';'",
+    "copy:assets": "npm run copy:agents && npm run copy:skills",
+    "build": "npm run clean && npm run compile && npm run copy:assets",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

@@ -10,7 +10,10 @@ import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
 import { from, mergeMap, type Observable } from "rxjs";
 
+import { LocalSkillSource, Workspace } from "@mastra/core/workspace";
+
 import { agentSpecs, defaultAgentId, type AgentSpec } from "../agents/index.ts";
+import { SKILLS_BASE_PATH, SKILL_DEFINITION_PATHS } from "../skills/index.ts";
 import { AgentNotFoundError } from "../errors.ts";
 import type {
   AgentConfig,
@@ -82,8 +85,15 @@ function createMastraAgent(options: ModelBackedAgentOptions): AgentRunner {
   // One Mastra instance per provider (per process). Keeps storage, agent
   // registry, and memory long-lived; per-request work happens in the runner
   // below via MastraAgent.getLocalAgent.
+  //
+  // Agent Skills are handled by Mastra's native workspace support: the workspace
+  // discovers SKILL.md folders under the skills package and every agent inherits
+  // it, automatically gaining the `skill` / `skill_search` / `skill_read` tools
+  // and a system-message catalog. The skills package owns only the documents;
+  // this provider does the framework-specific wiring.
   const mastra = new Mastra({
     agents,
+    workspace: createSkillsWorkspace(),
     ...(storage ? { storage } : {}),
   });
 
@@ -164,6 +174,19 @@ function buildLocalAgent(args: {
       : toMastraLocalTools(),
     ...(defaultOptions ? { defaultOptions, defaultStreamOptionsLegacy: defaultOptions } : {}),
     ...(memory ? { memory } : {}),
+  });
+}
+
+/**
+ * Builds the Mastra workspace that exposes Agent Skills. It scans the skills
+ * package's `definitions/` folders for `SKILL.md` files via a read-only
+ * `LocalSkillSource` — no full workspace filesystem is needed. If there are no
+ * skill folders, Mastra simply registers no skill tools.
+ */
+function createSkillsWorkspace(): Workspace {
+  return new Workspace({
+    skillSource: new LocalSkillSource({ basePath: SKILLS_BASE_PATH }),
+    skills: [...SKILL_DEFINITION_PATHS],
   });
 }
 

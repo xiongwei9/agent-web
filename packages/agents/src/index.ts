@@ -5,6 +5,7 @@ export {
   AgentProviderNotFoundError,
 } from "./errors.ts";
 export { createAgentRunner, getAgentProvider, listAgentProviders } from "./registry.ts";
+export { SKILLS_BASE_PATH, SKILL_DEFINITION_PATHS } from "./skills/index.ts";
 export {
   AGENT_PROVIDER_IDS,
   AGENT_PROVIDER_SELECTIONS,
