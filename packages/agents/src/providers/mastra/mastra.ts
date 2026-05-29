@@ -12,9 +12,9 @@ import { from, mergeMap, type Observable } from "rxjs";
 
 import { LocalSkillSource, Workspace } from "@mastra/core/workspace";
 
-import { agentSpecs, defaultAgentId, type AgentSpec } from "../agents/index.ts";
-import { SKILLS_BASE_PATH, SKILL_DEFINITION_PATHS } from "../skills/index.ts";
-import { AgentNotFoundError } from "../errors.ts";
+import { agentSpecs, defaultAgentId, type AgentSpec } from "../../agents/index.ts";
+import { SKILLS_BASE_PATH, SKILL_DEFINITION_PATHS } from "../../skills/index.ts";
+import { AgentNotFoundError } from "../../errors.ts";
 import type {
   AgentConfig,
   AgentExecutionConfig,
@@ -23,15 +23,15 @@ import type {
   LanguageModelConfig,
   MastraProviderConfig,
   McpConfig,
-} from "../types.ts";
+} from "../../types.ts";
 import {
   createLanguageModel,
   isLanguageModelConfigured,
   resolveLanguageModelConfig,
   type ResolvedLanguageModelConfig,
-} from "./language-model.ts";
+} from "../../models/index.ts";
 import { createMcpToolRegistry, type McpToolRegistry } from "./mcp.ts";
-import { contextToText, isRecord, localAgentTools, normalizeToolParameters } from "./shared.ts";
+import { contextToText, isRecord, localAgentTools, normalizeToolParameters } from "../shared.ts";
 
 const AGUI_CONTEXT_KEY = "ag-ui";
 

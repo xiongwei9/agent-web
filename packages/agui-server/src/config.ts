@@ -1,14 +1,11 @@
 import {
-  AGENT_PROVIDER_SELECTIONS,
-  AUTO_AGENT_PROVIDER,
   LANGUAGE_MODEL_PROVIDERS,
-  isAgentProviderSelection,
   type AgentConfig,
-  type AgentProviderSelection,
   type LanguageModelProvider,
   type McpConfig,
   type McpServerConfig,
   type OpenAIModelApi,
+  type AgentProviderSelection,
 } from "@ai-chat/agents";
 
 const DEFAULT_HOST = "0.0.0.0";
@@ -28,7 +25,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: readPort(env.PORT, DEFAULT_PORT),
     logLevel: emptyToUndefined(env.LOG_LEVEL) ?? DEFAULT_LOG_LEVEL,
     agent: {
-      provider: readAgentProvider(env.AGENT_PROVIDER),
+      provider: emptyToUndefined(env.AGENT_PROVIDER) as AgentProviderSelection | undefined,
       languageModel: {
         provider: readLanguageModelProvider(env.MODEL_PROVIDER),
         api: readLanguageModelApi(env.MODEL_API),
@@ -168,21 +165,6 @@ function readMcpTransport(value: Record<string, unknown>): "stdio" | "http" | "s
 
   throw new Error(
     'Invalid MCP server config: expected either "command" for stdio or "url" for HTTP/SSE.',
-  );
-}
-
-function readAgentProvider(value: string | undefined): AgentProviderSelection {
-  const provider = emptyToUndefined(value);
-  if (!provider) {
-    return AUTO_AGENT_PROVIDER;
-  }
-
-  if (isAgentProviderSelection(provider)) {
-    return provider;
-  }
-
-  throw new Error(
-    `Unsupported AGENT_PROVIDER "${provider}". Supported values: ${AGENT_PROVIDER_SELECTIONS.join(", ")}`,
   );
 }
 

@@ -4,11 +4,10 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { MastraModelConfig } from "@mastra/core/llm";
 
 import type { LanguageModelConfig, LanguageModelProvider, OpenAIModelApi } from "../types.ts";
-import { DEFAULT_LANGUAGE_MODEL } from "./shared.ts";
 
-export const DEFAULT_MODEL_BY_PROVIDER: Record<LanguageModelProvider, string> = {
-  openai: DEFAULT_LANGUAGE_MODEL,
-  "openai-compatible": DEFAULT_LANGUAGE_MODEL,
+const DEFAULT_MODEL_BY_PROVIDER: Record<LanguageModelProvider, string> = {
+  openai: "gpt-4.1-mini",
+  "openai-compatible": "gpt-4.1-mini",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-2.5-flash",
 };
@@ -22,7 +21,7 @@ export interface ResolvedLanguageModelConfig {
   provider: LanguageModelProvider;
 }
 
-export interface CreatedLanguageModel {
+interface CreatedLanguageModel {
   config: ResolvedLanguageModelConfig;
   model: MastraModelConfig;
 }
@@ -91,7 +90,7 @@ export function resolveLanguageModelConfig(
   };
 }
 
-export function inferLanguageModelProvider(config: LanguageModelConfig): LanguageModelProvider {
+function inferLanguageModelProvider(config: LanguageModelConfig): LanguageModelProvider {
   if (config.baseURL) {
     return "openai-compatible";
   }

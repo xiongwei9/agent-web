@@ -2,10 +2,13 @@ import { HttpAgent } from "@ag-ui/client";
 import type { BaseEvent } from "@ag-ui/client";
 import type { Observable } from "rxjs";
 
-import type { AgentConfig, AgentProvider, AgentRunner, AgnoProviderConfig } from "../types.ts";
+import type { AgentConfig, AgentProvider, AgentRunner, AgnoProviderConfig } from "../../types.ts";
 
 const DEFAULT_PATH = "/agui";
 
+/**
+ * @deprecated NOT SUPPORTED: This provider is an early experiment
+ */
 export const agnoAgentProvider: AgentProvider = {
   id: "agno",
   label: "Agno Agent",

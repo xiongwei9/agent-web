@@ -12,8 +12,8 @@ import type { ToolsInput as MastraToolsInput } from "@mastra/core/agent";
 import type { PublicSchema } from "@mastra/core/schema";
 import { createTool as createMastraTool } from "@mastra/core/tools";
 
-import type { McpConfig, McpServerConfig, McpStdioServerConfig } from "../types.ts";
-import { isRecord, normalizeToolParameters } from "./shared.ts";
+import type { McpConfig, McpServerConfig, McpStdioServerConfig } from "../../types.ts";
+import { isRecord, normalizeToolParameters } from "../shared.ts";
 
 const MCP_CLIENT_VERSION = "0.1.0";
 const MAX_TOOL_NAME_LENGTH = 64;
