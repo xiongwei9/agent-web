@@ -22,14 +22,17 @@ export default [
   },
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
-    files: ["packages/**/*.ts"],
+    files: ["packages/**/*.{ts,tsx}"],
   })),
   {
-    files: ["packages/**/*.ts"],
+    files: ["packages/**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
-      globals: nodeGlobals,
+      globals: {
+        ...nodeGlobals,
+        ...globals.browser,
+      },
     },
     rules: {
       "@typescript-eslint/no-unused-vars": [

@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "pnpm --filter agui-server start",
-    "dev": "pnpm --filter agui-server dev",
+    "dev:server": "pnpm --filter agui-server dev",
+    "dev:fe": "pnpm --filter agui-fe dev",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:staged": "pnpm lint:fix",

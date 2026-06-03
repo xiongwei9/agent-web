@@ -72,11 +72,22 @@ export class McpToolRegistry {
     const tools = new Map<string, NativeTool>();
     const usedNames = new Set<string>();
 
+    // Load each server independently: a server that fails to connect or returns
+    // a malformed tool list (e.g. a non-spec-compliant MCP endpoint) is skipped
+    // with a warning rather than aborting the whole run. Its client promise is
+    // cleared so a later run can retry it.
     for (const entry of this.entries) {
-      const client = await this.getClient(entry);
-      for (const mcpTool of await listAllTools(client, entry.config)) {
-        const toolName = uniqueToolName(`${entry.id}__${mcpTool.name}`, usedNames);
-        tools.set(toolName, this.toNativeTool(entry, mcpTool, toolName));
+      try {
+        const client = await this.getClient(entry);
+        for (const mcpTool of await listAllTools(client, entry.config)) {
+          const toolName = uniqueToolName(`${entry.id}__${mcpTool.name}`, usedNames);
+          tools.set(toolName, this.toNativeTool(entry, mcpTool, toolName));
+        }
+      } catch (error) {
+        this.clients.delete(entry.id);
+        console.warn(
+          `[mcp] skipping server "${entry.id}": ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 

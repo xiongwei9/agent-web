@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { EventType, type BaseEvent, type Context, type Message, type Tool } from "@ag-ui/core";
 import { Observable, type Subscriber } from "rxjs";
 
@@ -98,6 +100,11 @@ async function drive(
       abortSignal,
     };
 
+    // Models number their stream parts per-response (the first text block is
+    // always id "0"), so the same ids recur across runs and iterations.
+    // `streamTurn` maps each raw part id to a fresh, self-contained id so AG-UI
+    // message/tool ids stay globally unique — otherwise the client merges
+    // consecutive assistant replies into one message.
     const turn = await streamTurn(options.model, callOptions, serverTools, subscriber);
     if (abortSignal.aborted) {
       return;
@@ -158,6 +165,20 @@ async function streamTurn(
   const { stream } = await model.doStream(callOptions);
   const reader = stream.getReader();
 
+  // Map each raw model part id to a fresh, self-contained id. Model part ids
+  // recur across runs and iterations (the first text block is always "0"), so
+  // surfacing them directly would let the client merge unrelated messages. We
+  // mint one id per raw id and reuse it across that part's start/delta/end:
+  //   - text messages → `msg_<uuid>`
+  //   - tool calls     → `call_<uuid>`, which also stays within Bedrock's
+  //                       64-char toolUseId limit.
+  // Text and tool ids are tracked separately so a collision between a text
+  // block and a tool call sharing a raw id (e.g. both "0") can't alias them.
+  const messageIds = new Map<string, string>();
+  const toolCallIds = new Map<string, string>();
+  const qualifyMessage = (id: string): string => mint(messageIds, "msg", id);
+  const qualifyToolCall = (id: string): string => mint(toolCallIds, "call", id);
+
   let textMessageId: string | undefined;
   let textBuffer = "";
   const started = new Set<string>();
@@ -207,66 +228,75 @@ async function streamTurn(
       const part = value;
       switch (part.type) {
         case "text-start": {
-          textMessageId = part.id;
+          textMessageId = qualifyMessage(part.id);
           subscriber.next(
             aguiEvent({
               type: EventType.TEXT_MESSAGE_START,
-              messageId: part.id,
+              messageId: textMessageId,
               role: "assistant",
             }),
           );
           break;
         }
         case "text-delta": {
+          // Providers emit empty deltas at stream boundaries or as keep-alive
+          // chunks; forwarding them would spam the client with no-op events.
+          if (part.delta.length === 0) {
+            break;
+          }
           textBuffer += part.delta;
           subscriber.next(
             aguiEvent({
               type: EventType.TEXT_MESSAGE_CONTENT,
-              messageId: part.id,
+              messageId: qualifyMessage(part.id),
               delta: part.delta,
             }),
           );
           break;
         }
         case "text-end": {
-          subscriber.next(aguiEvent({ type: EventType.TEXT_MESSAGE_END, messageId: part.id }));
+          subscriber.next(
+            aguiEvent({ type: EventType.TEXT_MESSAGE_END, messageId: qualifyMessage(part.id) }),
+          );
           break;
         }
         case "tool-input-start": {
-          startToolCall(part.id, part.toolName);
+          startToolCall(qualifyToolCall(part.id), part.toolName);
           break;
         }
         case "tool-input-delta": {
-          if (started.has(part.id) && !hidden.has(part.id)) {
+          const toolCallId = qualifyToolCall(part.id);
+          if (started.has(toolCallId) && !hidden.has(toolCallId)) {
             subscriber.next(
-              aguiEvent({ type: EventType.TOOL_CALL_ARGS, toolCallId: part.id, delta: part.delta }),
+              aguiEvent({ type: EventType.TOOL_CALL_ARGS, toolCallId, delta: part.delta }),
             );
           }
           break;
         }
         case "tool-input-end": {
-          endToolCall(part.id);
+          endToolCall(qualifyToolCall(part.id));
           break;
         }
         case "tool-call": {
           // Terminal, fully-assembled call. If the provider never streamed the
           // incremental parts, synthesize START + ARGS now so the client still
           // sees the arguments.
-          if (!started.has(part.toolCallId)) {
-            startToolCall(part.toolCallId, part.toolName);
-            if (!hidden.has(part.toolCallId)) {
+          const toolCallId = qualifyToolCall(part.toolCallId);
+          if (!started.has(toolCallId)) {
+            startToolCall(toolCallId, part.toolName);
+            if (!hidden.has(toolCallId)) {
               subscriber.next(
                 aguiEvent({
                   type: EventType.TOOL_CALL_ARGS,
-                  toolCallId: part.toolCallId,
+                  toolCallId,
                   delta: part.input,
                 }),
               );
             }
           }
-          endToolCall(part.toolCallId);
+          endToolCall(toolCallId);
           toolCalls.push({
-            toolCallId: part.toolCallId,
+            toolCallId,
             toolName: part.toolName,
             rawInput: part.input,
           });
@@ -328,6 +358,19 @@ function toToolResultMessage(call: CollectedToolCall, result: string): ModelMess
       },
     ],
   };
+}
+
+/**
+ * Returns a stable id for `rawId`, minting `${prefix}_<uuid>` on first sight and
+ * reusing it thereafter so a part's start/delta/end events all share one id.
+ */
+function mint(cache: Map<string, string>, prefix: string, rawId: string): string {
+  let mapped = cache.get(rawId);
+  if (mapped === undefined) {
+    mapped = `${prefix}_${randomUUID()}`;
+    cache.set(rawId, mapped);
+  }
+  return mapped;
 }
 
 function parseArguments(raw: string): unknown {

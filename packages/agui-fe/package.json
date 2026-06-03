@@ -1,0 +1,31 @@
+{
+  "name": "@ai-chat/agui-fe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "React + Vite frontend that renders the AG-UI conversation stream from agui-server.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+  },
+  "dependencies": {
+    "@ag-ui/client": "0.0.53",
+    "@ag-ui/core": "0.0.53",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.8.2",
+    "vite": "^7.0.0"
+  }
+}
