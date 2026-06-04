@@ -4,7 +4,7 @@ import { EventType, type BaseEvent, type Context, type Message, type Tool } from
 import { Observable, type Subscriber } from "rxjs";
 
 import { aguiEvent } from "../../events.ts";
-import { a2uiRenderToolDef } from "./a2ui.ts";
+import { A2UI_RENDER_TOOL_NAME, a2uiRenderToolDef, validateA2uiMessages } from "./a2ui.ts";
 import { buildModelToolDefs } from "./tools.ts";
 import { buildPrompt } from "./prompt.ts";
 import {
@@ -160,14 +160,58 @@ async function drive(
       break;
     }
 
-    // A client (HITL) tool can't be executed here — finish the run and let the
-    // client fulfill it and resume. The TOOL_CALL_* events were already emitted.
-    const hasClientCall = turn.toolCalls.some((call) => !serverTools.has(call.toolName));
-    if (hasClientCall) {
+    // Validate every `render_a2ui` call against the official A2UI schema before
+    // we hand anything off. A VALID surface is client-fulfilled; an INVALID one
+    // is bounced back to the model (below) so it fixes the JSON and re-emits,
+    // rather than streaming broken UI to the client.
+    const a2uiErrors = new Map<string, string>();
+    for (const call of turn.toolCalls) {
+      if (call.toolName !== A2UI_RENDER_TOOL_NAME) {
+        continue;
+      }
+      const validation = validateA2uiMessages(call.rawInput);
+      if (!validation.ok) {
+        a2uiErrors.set(call.toolCallId, validation.error);
+      }
+    }
+
+    // Nothing to fix: a valid `render_a2ui` (or any other client/HITL tool) can't
+    // be executed here — finish the run and let the client fulfill it and resume.
+    // The TOOL_CALL_* events were already emitted.
+    if (a2uiErrors.size === 0 && turn.toolCalls.some((call) => !serverTools.has(call.toolName))) {
       break;
     }
 
     for (const call of turn.toolCalls) {
+      if (call.toolName === A2UI_RENDER_TOOL_NAME) {
+        const error = a2uiErrors.get(call.toolCallId);
+        if (error === undefined) {
+          // Valid surface mixed with an invalid sibling (rare): the client will
+          // render it on resume, so don't execute or bounce it here.
+          continue;
+        }
+        const message =
+          `A2UI validation failed; fix the JSON and call ${A2UI_RENDER_TOOL_NAME} again. ` +
+          `The messages ${error}`;
+        subscriber.next(
+          aguiEvent({
+            type: EventType.TOOL_CALL_RESULT,
+            messageId: `${call.toolCallId}-result`,
+            toolCallId: call.toolCallId,
+            content: message,
+            role: "tool",
+          }),
+        );
+        prompt.push(toToolResultMessage(call, message));
+        continue;
+      }
+
+      // Other client (HITL) tools can't run here; only reachable when bundled with
+      // an invalid render_a2ui that kept the run going. Leave them for a resume.
+      if (!serverTools.has(call.toolName)) {
+        continue;
+      }
+
       const result = await executeServerTool(serverTools, call);
       // Hidden tools (e.g. skills plumbing) feed their result back to the model
       // but emit no AG-UI result event — matching the suppressed start/args/end.

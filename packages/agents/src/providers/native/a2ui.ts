@@ -1,3 +1,5 @@
+import { A2uiMessageListSchema } from "@a2ui/web_core/v0_9";
+
 import type { ModelFunctionTool } from "./types.ts";
 
 /**
@@ -48,6 +50,46 @@ export function a2uiRenderToolDef(): ModelFunctionTool {
       additionalProperties: false,
     },
   };
+}
+
+/** Outcome of validating a `render_a2ui` tool call's arguments. */
+export type A2uiValidation = { ok: true } | { ok: false; error: string };
+
+/**
+ * Validates the raw `render_a2ui` arguments against the official A2UI v0.9
+ * message schema from `@a2ui/web_core`, so the loop can hand the client a
+ * well-formed surface — or bounce a clear error back to the model to self-correct
+ * — instead of streaming broken UI. Catches envelope mistakes (missing version,
+ * wrong message shape, components not a list, …); component-property errors that
+ * are catalog-specific still surface in the renderer.
+ */
+export function validateA2uiMessages(rawArgs: string): A2uiValidation {
+  let parsed: unknown;
+  try {
+    parsed = rawArgs ? JSON.parse(rawArgs) : undefined;
+  } catch {
+    return { ok: false, error: "are not valid JSON." };
+  }
+  if (!parsed || typeof parsed !== "object" || !("messages" in parsed)) {
+    return { ok: false, error: 'must be an object with a "messages" array.' };
+  }
+  const { messages } = parsed as { messages: unknown };
+  if (!Array.isArray(messages)) {
+    return { ok: false, error: '"messages" must be an array of A2UI messages.' };
+  }
+
+  const result = A2uiMessageListSchema.safeParse(messages);
+  if (result.success) {
+    return { ok: true };
+  }
+  const detail = result.error.issues
+    .slice(0, 6)
+    .map((issue) => {
+      const path = issue.path.length > 0 ? `messages/${issue.path.join("/")}` : "messages";
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
+  return { ok: false, error: `do not match the A2UI v0.9 schema (${detail}).` };
 }
 
 /**
