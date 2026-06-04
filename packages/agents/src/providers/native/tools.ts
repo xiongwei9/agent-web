@@ -68,22 +68,28 @@ export function toModelToolDef(tool: NativeTool): ModelFunctionTool {
 /**
  * Builds the function declarations advertised to the model for one run: every
  * server-side tool, plus every client tool from the request that isn't already
- * handled server-side. Server tools win on name collisions so we never shadow a
- * builtin with a client declaration we can't execute.
+ * handled server-side, plus any `frontendToolDefs` (server-defined but
+ * client-fulfilled tools, e.g. the A2UI `render_a2ui` tool). Server tools win on
+ * name collisions so we never shadow a builtin with a declaration we can't
+ * execute, and frontend defs never overwrite a server or client tool.
  */
 export function buildModelToolDefs(
   serverTools: Map<string, NativeTool>,
   clientTools: { name: string; description?: string; parameters?: unknown }[],
+  frontendToolDefs: ModelFunctionTool[] = [],
 ): ModelFunctionTool[] {
   const defs: ModelFunctionTool[] = [];
+  const seen = new Set<string>();
   for (const tool of serverTools.values()) {
     defs.push(toModelToolDef(tool));
+    seen.add(tool.name);
   }
 
   for (const tool of clientTools) {
-    if (serverTools.has(tool.name)) {
+    if (seen.has(tool.name)) {
       continue;
     }
+    seen.add(tool.name);
     defs.push({
       type: "function",
       name: tool.name,
@@ -92,6 +98,14 @@ export function buildModelToolDefs(
         ? normalizeToolParameters(tool.parameters)
         : normalizeToolParameters(undefined),
     });
+  }
+
+  for (const def of frontendToolDefs) {
+    if (seen.has(def.name)) {
+      continue;
+    }
+    seen.add(def.name);
+    defs.push(def);
   }
 
   return defs;

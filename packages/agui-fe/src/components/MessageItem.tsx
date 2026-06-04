@@ -1,11 +1,17 @@
 import type { Message } from "@ag-ui/core";
 
+import { A2uiSurface, type A2uiActionPayload } from "./A2uiSurface";
 import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
+
+/** Tool the agent calls to render an A2UI surface; rendered specially below. */
+const A2UI_RENDER_TOOL_NAME = "render_a2ui";
 
 interface MessageItemProps {
   message: Message;
   toolResults: Map<string, string>;
+  /** Send a user's A2UI interaction back to the agent to resume the run. */
+  onA2uiAction: (toolCallId: string, payload: A2uiActionPayload) => void;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -13,7 +19,7 @@ const ROLE_LABEL: Record<string, string> = {
   assistant: "Assistant",
 };
 
-export function MessageItem({ message, toolResults }: MessageItemProps) {
+export function MessageItem({ message, toolResults, onA2uiAction }: MessageItemProps) {
   const role = message.role;
   const text = extractText(message);
   const toolCalls = message.role === "assistant" ? (message.toolCalls ?? []) : [];
@@ -40,17 +46,59 @@ export function MessageItem({ message, toolResults }: MessageItemProps) {
             <p className="m-0 whitespace-pre-wrap wrap-break-word">{text}</p>
           )
         ) : null}
-        {toolCalls.map((call) => (
-          <ToolCall
-            key={call.id}
-            name={call.function.name}
-            args={call.function.arguments}
-            result={toolResults.get(call.id)}
-          />
-        ))}
+        {toolCalls.map((call) => {
+          const surfaceMessages =
+            call.function.name === A2UI_RENDER_TOOL_NAME
+              ? parseA2uiMessages(call.function.arguments)
+              : undefined;
+          if (surfaceMessages) {
+            return (
+              <A2uiSurface
+                key={call.id}
+                messages={surfaceMessages}
+                onAction={(payload) => onA2uiAction(call.id, payload)}
+              />
+            );
+          }
+          return (
+            <ToolCall
+              key={call.id}
+              name={call.function.name}
+              args={call.function.arguments}
+              result={toolResults.get(call.id)}
+            />
+          );
+        })}
       </div>
     </li>
   );
+}
+
+/**
+ * Parses the `render_a2ui` tool arguments into the A2UI message list. Returns
+ * undefined while the arguments are still streaming / incomplete (invalid JSON
+ * or no `messages` array yet), so we keep showing the generic tool view until
+ * the full surface has arrived.
+ */
+function parseA2uiMessages(args: string): unknown[] | undefined {
+  if (!args) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(args) as unknown;
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      "messages" in parsed &&
+      Array.isArray(parsed.messages) &&
+      parsed.messages.length > 0
+    ) {
+      return parsed.messages as unknown[];
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 /** Normalizes string-or-parts message content down to a display string. */

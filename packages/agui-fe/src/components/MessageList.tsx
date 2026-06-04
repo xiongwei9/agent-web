@@ -1,14 +1,17 @@
 import type { Message } from "@ag-ui/core";
 import { useMemo } from "react";
 
+import type { A2uiActionPayload } from "./A2uiSurface";
 import { MessageItem } from "./MessageItem";
 
 interface MessageListProps {
   messages: Message[];
   isRunning: boolean;
+  /** Send a user's A2UI interaction back to the agent to resume the run. */
+  onA2uiAction: (toolCallId: string, payload: A2uiActionPayload) => void;
 }
 
-export function MessageList({ messages, isRunning }: MessageListProps) {
+export function MessageList({ messages, isRunning, onA2uiAction }: MessageListProps) {
   // Tool results arrive as standalone `tool` messages keyed by toolCallId. We
   // attach them to the originating tool call instead of rendering them on their
   // own, so map them up front.
@@ -38,7 +41,12 @@ export function MessageList({ messages, isRunning }: MessageListProps) {
   return (
     <ul className="m-0 flex list-none flex-col gap-5 p-0">
       {visible.map((message) => (
-        <MessageItem key={message.id} message={message} toolResults={toolResults} />
+        <MessageItem
+          key={message.id}
+          message={message}
+          toolResults={toolResults}
+          onA2uiAction={onA2uiAction}
+        />
       ))}
       {isRunning ? (
         <li className="flex gap-1.25 px-0.5 py-1.5" aria-live="polite">

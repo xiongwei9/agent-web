@@ -4,6 +4,7 @@ import { EventType, type BaseEvent, type Context, type Message, type Tool } from
 import { Observable, type Subscriber } from "rxjs";
 
 import { aguiEvent } from "../../events.ts";
+import { a2uiRenderToolDef } from "./a2ui.ts";
 import { buildModelToolDefs } from "./tools.ts";
 import { buildPrompt } from "./prompt.ts";
 import {
@@ -95,7 +96,10 @@ async function drive(
   subscriber.next(aguiEvent({ type: EventType.RUN_STARTED, threadId, runId }));
 
   let prompt = buildPrompt(options.messages, options.persona, options.context);
-  const toolDefs = buildModelToolDefs(serverTools, options.clientTools);
+  // `render_a2ui` is advertised here but not registered as a server tool, so the
+  // loop's client-tool path stops the run when it's called and the client renders
+  // the A2UI surface (then resumes via a `tool` result with the user's action).
+  const toolDefs = buildModelToolDefs(serverTools, options.clientTools, [a2uiRenderToolDef()]);
   const maxIterations = options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const compaction = resolveCompactionOptions(options.compaction);
 

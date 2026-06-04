@@ -11,8 +11,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "@a2ui/lit": "^0.10.0",
+    "@a2ui/markdown-it": "^0.0.4",
+    "@a2ui/web_core": "^0.10.0",
     "@ag-ui/client": "0.0.53",
     "@ag-ui/core": "0.0.53",
+    "lit": "^3.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",

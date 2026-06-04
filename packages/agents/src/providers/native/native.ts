@@ -16,6 +16,7 @@ import type {
   LanguageModelConfig,
   McpConfig,
 } from "../../types.ts";
+import { a2uiSystemPromptSection } from "./a2ui.ts";
 import { runNativeAgent } from "./loop.ts";
 import { NativeToolset } from "./tools.ts";
 import type { NativeLanguageModel } from "./types.ts";
@@ -135,13 +136,17 @@ function createNativeAgent(options: NativeAgentOptions): AgentRunner {
   };
 }
 
-/** Appends the Level-1 skill catalog to the agent's persona for the system prompt. */
+/**
+ * Composes the agent's system prompt: its instructions, the Level-1 skill
+ * catalog, and the A2UI authoring guide (so it can render generative UI via the
+ * `render_a2ui` tool).
+ */
 function composePersona(
   instructions: string | undefined,
   skillsCatalog: string | undefined,
 ): string | undefined {
-  const parts = [instructions, skillsCatalog].filter((part): part is string =>
-    Boolean(part && part.trim()),
+  const parts = [instructions, skillsCatalog, a2uiSystemPromptSection()].filter(
+    (part): part is string => Boolean(part && part.trim()),
   );
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
