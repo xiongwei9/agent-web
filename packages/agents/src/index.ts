@@ -15,6 +15,7 @@ export type {
   AgentRunner,
   AgentRunnerOptions,
   AgnoProviderConfig,
+  ContextCompactionConfig,
   CreateAgentRunnerOptions,
   LanguageModelConfig,
   LanguageModelProvider,

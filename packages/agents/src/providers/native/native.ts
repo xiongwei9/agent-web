@@ -117,6 +117,7 @@ function createNativeAgent(options: NativeAgentOptions): AgentRunner {
             model: modelForAgent(spec),
             serverTools,
             maxToolIterations,
+            compaction: options.execution?.contextCompaction,
           }).subscribe(subscriber);
         },
         (error) => {

@@ -57,6 +57,21 @@ export interface LanguageModelConfig {
 
 export interface AgentExecutionConfig {
   maxToolIterations?: number;
+  /**
+   * Context compaction ("prompt optimization"): summarize older messages once
+   * the prompt grows past a token threshold, keeping recent turns verbatim.
+   * Honored by the native provider. Omit fields to inherit defaults.
+   */
+  contextCompaction?: ContextCompactionConfig;
+}
+
+export interface ContextCompactionConfig {
+  /** Master switch. Defaults to enabled. */
+  enabled?: boolean;
+  /** Compact once the estimated prompt token count exceeds this. */
+  maxTokens?: number;
+  /** Always keep at least this many of the most recent messages verbatim. */
+  keepRecentMessages?: number;
 }
 
 export interface MastraProviderConfig {

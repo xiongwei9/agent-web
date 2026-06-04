@@ -6,6 +6,11 @@ import { Observable, type Subscriber } from "rxjs";
 import { aguiEvent } from "../../events.ts";
 import { buildModelToolDefs } from "./tools.ts";
 import { buildPrompt } from "./prompt.ts";
+import {
+  compactPromptIfNeeded,
+  resolveCompactionOptions,
+  type CompactionOptions,
+} from "./compaction.ts";
 import type {
   ModelAssistantContentPart,
   ModelCallOptions,
@@ -27,6 +32,8 @@ export interface RunOptions {
   serverTools: Map<string, NativeTool>;
   maxToolIterations?: number;
   temperature?: number;
+  /** Context compaction settings; merged onto defaults. Omit to use defaults. */
+  compaction?: Partial<CompactionOptions>;
 }
 
 interface CollectedToolCall {
@@ -87,11 +94,32 @@ async function drive(
 
   subscriber.next(aguiEvent({ type: EventType.RUN_STARTED, threadId, runId }));
 
-  const prompt = buildPrompt(options.messages, options.persona, options.context);
+  let prompt = buildPrompt(options.messages, options.persona, options.context);
   const toolDefs = buildModelToolDefs(serverTools, options.clientTools);
   const maxIterations = options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
+  const compaction = resolveCompactionOptions(options.compaction);
 
   for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    // Keep the running prompt inside the context window. Compaction summarizes
+    // the older messages (long history *or* accumulated tool-call rounds) and
+    // replaces them with a brief, so a deep loop doesn't overflow the model.
+    const compactedPrompt = await compactPromptIfNeeded(
+      prompt,
+      options.model,
+      compaction,
+      abortSignal,
+    );
+    if (abortSignal.aborted) {
+      return;
+    }
+    if (compactedPrompt !== prompt) {
+      console.log(
+        `[native-agent] ⊙ compacted prompt (runId=${runId}, iteration=${iteration}): ` +
+          `${prompt.length} → ${compactedPrompt.length} messages`,
+      );
+      prompt = compactedPrompt;
+    }
+
     const callOptions: ModelCallOptions = {
       prompt,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
@@ -99,6 +127,11 @@ async function drive(
       temperature: options.temperature,
       abortSignal,
     };
+
+    console.log(
+      `[native-agent] → LLM request (runId=${runId}, iteration=${iteration})\n` +
+        JSON.stringify(callOptions.prompt, null, 2),
+    );
 
     // Models number their stream parts per-response (the first text block is
     // always id "0"), so the same ids recur across runs and iterations.
@@ -109,6 +142,11 @@ async function drive(
     if (abortSignal.aborted) {
       return;
     }
+
+    console.log(
+      `[native-agent] ← LLM response (runId=${runId}, iteration=${iteration})\n` +
+        JSON.stringify(turn.assistantContent, null, 2),
+    );
 
     if (turn.assistantContent.length > 0) {
       prompt.push({ role: "assistant", content: turn.assistantContent });
