@@ -5,7 +5,8 @@ import { Observable, type Subscriber } from "rxjs";
 
 import { aguiEvent } from "../../events.ts";
 import { buildModelToolDefs } from "./tools.ts";
-import { buildPrompt } from "./prompt.ts";
+import { buildPrompt, composeSystemText } from "./prompt.ts";
+import { buildHandoffToolset, handoffResultText, type RunnableAgent } from "./handoff.ts";
 import {
   compactPromptIfNeeded,
   resolveCompactionOptions,
@@ -27,8 +28,14 @@ export interface RunOptions {
   messages: Message[];
   clientTools: Tool[];
   context: Context[];
-  persona: string | undefined;
-  model: NativeLanguageModel;
+  /** The agent that starts the run. May be swapped mid-loop via handoff. */
+  agent: RunnableAgent;
+  /**
+   * Resolves a handoff target id to its runnable form. Returns undefined when
+   * the target no longer exists, in which case the handoff is declined and the
+   * current agent keeps the conversation.
+   */
+  resolveAgent: (agentId: string) => RunnableAgent | undefined;
   serverTools: Map<string, NativeTool>;
   maxToolIterations?: number;
   temperature?: number;
@@ -94,8 +101,18 @@ async function drive(
 
   subscriber.next(aguiEvent({ type: EventType.RUN_STARTED, threadId, runId }));
 
-  let prompt = buildPrompt(options.messages, options.persona, options.context);
-  const toolDefs = buildModelToolDefs(serverTools, options.clientTools);
+  // The active agent can change mid-run via handoff. Its persona drives the
+  // leading system message and its `transfer_to_<id>` tools are re-advertised
+  // each iteration; everything else (history, server/client tools) is shared.
+  let active = options.agent;
+  let handoffs = buildHandoffToolset(active);
+
+  let prompt = buildPrompt(options.messages, active.persona, options.context);
+  // Whether prompt[0] is the agent's own system message (persona + context). A
+  // handoff replaces it in place when present, or prepends one when absent.
+  let hasSystemLeading = composeSystemText(active.persona, options.context) !== undefined;
+
+  const baseToolDefs = buildModelToolDefs(serverTools, options.clientTools);
   const maxIterations = options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const compaction = resolveCompactionOptions(options.compaction);
 
@@ -105,7 +122,7 @@ async function drive(
     // replaces them with a brief, so a deep loop doesn't overflow the model.
     const compactedPrompt = await compactPromptIfNeeded(
       prompt,
-      options.model,
+      active.model,
       compaction,
       abortSignal,
     );
@@ -120,6 +137,10 @@ async function drive(
       prompt = compactedPrompt;
     }
 
+    // The active agent's handoff tools sit alongside the shared server/client
+    // tools; they're rebuilt on every switch so each agent only sees its own.
+    const toolDefs = handoffs.defs.length > 0 ? [...baseToolDefs, ...handoffs.defs] : baseToolDefs;
+
     const callOptions: ModelCallOptions = {
       prompt,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
@@ -129,7 +150,7 @@ async function drive(
     };
 
     console.log(
-      `[native-agent] → LLM request (runId=${runId}, iteration=${iteration})\n` +
+      `[native-agent] → LLM request (runId=${runId}, iteration=${iteration}, agent=${active.id})\n` +
         JSON.stringify(callOptions.prompt, null, 2),
     );
 
@@ -138,13 +159,13 @@ async function drive(
     // `streamTurn` maps each raw part id to a fresh, self-contained id so AG-UI
     // message/tool ids stay globally unique — otherwise the client merges
     // consecutive assistant replies into one message.
-    const turn = await streamTurn(options.model, callOptions, serverTools, subscriber);
+    const turn = await streamTurn(active.model, callOptions, serverTools, subscriber);
     if (abortSignal.aborted) {
       return;
     }
 
     console.log(
-      `[native-agent] ← LLM response (runId=${runId}, iteration=${iteration})\n` +
+      `[native-agent] ← LLM response (runId=${runId}, iteration=${iteration}, agent=${active.id})\n` +
         JSON.stringify(turn.assistantContent, null, 2),
     );
 
@@ -158,12 +179,48 @@ async function drive(
 
     // A client (HITL) tool can't be executed here — finish the run and let the
     // client fulfill it and resume. The TOOL_CALL_* events were already emitted.
-    const hasClientCall = turn.toolCalls.some((call) => !serverTools.has(call.toolName));
+    // Handoff tools are handled server-side, so they don't count as client calls.
+    const hasClientCall = turn.toolCalls.some(
+      (call) => !serverTools.has(call.toolName) && !handoffs.targetByToolName.has(call.toolName),
+    );
     if (hasClientCall) {
       break;
     }
 
+    // Resolved when the model called a handoff tool this turn; the swap is
+    // applied after every tool result is emitted so the conversation stays
+    // well-formed (every tool call gets a matching result).
+    let nextAgent: RunnableAgent | undefined;
+
     for (const call of turn.toolCalls) {
+      const targetId = handoffs.targetByToolName.get(call.toolName);
+      if (targetId !== undefined) {
+        let result: string;
+        if (nextAgent) {
+          // Only the first handoff in a turn wins; later ones are no-ops.
+          result = `Ignored: the conversation is already handing off to the "${nextAgent.name}" agent.`;
+        } else {
+          const target = options.resolveAgent(targetId);
+          if (target) {
+            nextAgent = target;
+            result = handoffResultText(target);
+          } else {
+            result = `Cannot hand off: agent "${targetId}" is not available.`;
+          }
+        }
+        subscriber.next(
+          aguiEvent({
+            type: EventType.TOOL_CALL_RESULT,
+            messageId: `${call.toolCallId}-result`,
+            toolCallId: call.toolCallId,
+            content: result,
+            role: "tool",
+          }),
+        );
+        prompt.push(toToolResultMessage(call, result));
+        continue;
+      }
+
       const result = await executeServerTool(serverTools, call);
       // Hidden tools (e.g. skills plumbing) feed their result back to the model
       // but emit no AG-UI result event — matching the suppressed start/args/end.
@@ -180,9 +237,53 @@ async function drive(
       }
       prompt.push(toToolResultMessage(call, result));
     }
+
+    if (nextAgent && nextAgent.id !== active.id) {
+      const previous = active;
+      active = nextAgent;
+      handoffs = buildHandoffToolset(active);
+      hasSystemLeading = replaceSystemPrompt(
+        prompt,
+        active.persona,
+        options.context,
+        hasSystemLeading,
+      );
+      console.log(`[native-agent] ⇄ handoff ${previous.id} → ${active.id} (runId=${runId})`);
+      subscriber.next(
+        aguiEvent({
+          type: EventType.CUSTOM,
+          name: "agent_handoff",
+          value: { from: previous.id, to: active.id, name: active.name },
+        }),
+      );
+    }
   }
 
   subscriber.next(aguiEvent({ type: EventType.RUN_FINISHED, threadId, runId }));
+}
+
+/**
+ * Swaps the leading system message to reflect a newly active agent's persona
+ * (plus the unchanging request context). Returns whether the prompt now begins
+ * with an agent system message. When the new agent contributes no system text
+ * (no persona and no context), the prompt is left untouched.
+ */
+function replaceSystemPrompt(
+  prompt: ModelMessage[],
+  persona: string | undefined,
+  context: Context[],
+  hasSystemLeading: boolean,
+): boolean {
+  const systemText = composeSystemText(persona, context);
+  if (systemText === undefined) {
+    return hasSystemLeading;
+  }
+  if (hasSystemLeading) {
+    prompt[0] = { role: "system", content: systemText };
+  } else {
+    prompt.unshift({ role: "system", content: systemText });
+  }
+  return true;
 }
 
 /**

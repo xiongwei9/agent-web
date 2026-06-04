@@ -8,6 +8,12 @@ export interface AgentSpec {
   id: string;
   /** Display name. Defaults to `id` if a provider needs one. */
   name?: string;
+  /**
+   * One-line summary of what this agent is good for. Surfaced to other agents
+   * as the rationale on their `transfer_to_<id>` handoff tool, so peers know
+   * when to delegate. Optional; falls back to the display name.
+   */
+  description?: string;
   /** System prompt / persona for this agent. */
   instructions?: string;
   /**
@@ -16,4 +22,11 @@ export interface AgentSpec {
    * runtime selects the model elsewhere.
    */
   model?: string;
+  /**
+   * Ids of agents this agent may hand the conversation off to. The native
+   * provider turns each into a `transfer_to_<id>` tool; when the model calls
+   * one, that agent takes over the run (its persona, model, and own handoff
+   * set) with the conversation history preserved. Unknown ids are ignored.
+   */
+  handoffs?: string[];
 }

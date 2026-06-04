@@ -19,7 +19,7 @@ export function buildPrompt(
 ): ModelMessage[] {
   const prompt: ModelMessage[] = [];
 
-  const systemText = joinNonEmpty([persona, contextToText(context)]);
+  const systemText = composeSystemText(persona, context);
   if (systemText) {
     prompt.push({ role: "system", content: systemText });
   }
@@ -80,6 +80,18 @@ export function buildPrompt(
   }
 
   return prompt;
+}
+
+/**
+ * Builds the leading system message text from an agent's persona and the
+ * request context. Returns undefined when both are empty. The loop reuses this
+ * to rebuild the system message in place when a handoff swaps the active agent.
+ */
+export function composeSystemText(
+  persona: string | undefined,
+  context: Context[],
+): string | undefined {
+  return joinNonEmpty([persona, contextToText(context)]);
 }
 
 function extractUserText(content: unknown): string {

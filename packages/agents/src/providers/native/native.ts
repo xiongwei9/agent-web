@@ -16,6 +16,7 @@ import type {
   LanguageModelConfig,
   McpConfig,
 } from "../../types.ts";
+import { composeHandoffGuidance, type HandoffTarget, type RunnableAgent } from "./handoff.ts";
 import { runNativeAgent } from "./loop.ts";
 import { NativeToolset } from "./tools.ts";
 import type { NativeLanguageModel } from "./types.ts";
@@ -85,6 +86,56 @@ function createNativeAgent(options: NativeAgentOptions): AgentRunner {
   const agentsById = new Map(agentSpecs.map((spec) => [spec.id, spec]));
   const agentIds = [...agentsById.keys()];
 
+  // Resolves a spec's declared handoff ids to runnable-ready targets, dropping
+  // self-references and unknown ids (logged once) so a typo never produces a
+  // dead transfer tool.
+  const resolveHandoffTargets = (spec: AgentSpec): HandoffTarget[] => {
+    const targets: HandoffTarget[] = [];
+    for (const targetId of spec.handoffs ?? []) {
+      if (targetId === spec.id) {
+        continue;
+      }
+      const target = agentsById.get(targetId);
+      if (!target) {
+        console.warn(
+          `[native-agent] agent "${spec.id}" lists unknown handoff target "${targetId}"; ignoring.`,
+        );
+        continue;
+      }
+      targets.push({
+        id: target.id,
+        name: target.name ?? target.id,
+        description: target.description,
+      });
+    }
+    return targets;
+  };
+
+  // One runnable view per agent (persona + model + handoff targets), built on
+  // first use and shared across runs. Handoffs resolve targets through here too,
+  // so a swapped-in agent reuses the same cached model instance.
+  const runnableCache = new Map<string, RunnableAgent>();
+  const getRunnableAgent = (spec: AgentSpec): RunnableAgent => {
+    const cached = runnableCache.get(spec.id);
+    if (cached) {
+      return cached;
+    }
+    const handoffTargets = resolveHandoffTargets(spec);
+    const runnable: RunnableAgent = {
+      id: spec.id,
+      name: spec.name ?? spec.id,
+      persona: composePersona(spec.instructions, skillsCatalog, handoffTargets),
+      model: modelForAgent(spec),
+      handoffs: handoffTargets,
+    };
+    runnableCache.set(spec.id, runnable);
+    return runnable;
+  };
+  const resolveAgent = (agentId: string): RunnableAgent | undefined => {
+    const targetSpec = agentsById.get(agentId);
+    return targetSpec ? getRunnableAgent(targetSpec) : undefined;
+  };
+
   return (input, runnerOptions): Observable<BaseEvent> => {
     const requestedAgentId = runnerOptions?.agentId;
     if (requestedAgentId && !agentsById.has(requestedAgentId)) {
@@ -113,8 +164,8 @@ function createNativeAgent(options: NativeAgentOptions): AgentRunner {
             messages: input.messages,
             clientTools: input.tools,
             context: input.context,
-            persona: composePersona(spec.instructions, skillsCatalog),
-            model: modelForAgent(spec),
+            agent: getRunnableAgent(spec),
+            resolveAgent,
             serverTools,
             maxToolIterations,
             compaction: options.execution?.contextCompaction,
@@ -135,13 +186,18 @@ function createNativeAgent(options: NativeAgentOptions): AgentRunner {
   };
 }
 
-/** Appends the Level-1 skill catalog to the agent's persona for the system prompt. */
+/**
+ * Builds an agent's system prompt by appending the Level-1 skill catalog and,
+ * when the agent declares handoff targets, the "# Handoff" guidance listing the
+ * peers it may transfer to.
+ */
 function composePersona(
   instructions: string | undefined,
   skillsCatalog: string | undefined,
+  handoffTargets: HandoffTarget[],
 ): string | undefined {
-  const parts = [instructions, skillsCatalog].filter((part): part is string =>
-    Boolean(part && part.trim()),
+  const parts = [instructions, skillsCatalog, composeHandoffGuidance(handoffTargets)].filter(
+    (part): part is string => Boolean(part && part.trim()),
   );
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }

@@ -56,7 +56,32 @@ function parseAgentMarkdown(filename: string, raw: string): AgentSpec {
   return {
     id,
     name: typeof meta.name === "string" ? meta.name : undefined,
+    description: typeof meta.description === "string" ? meta.description : undefined,
     model: typeof meta.model === "string" ? meta.model : undefined,
     instructions: instructions ? instructions : undefined,
+    handoffs: parseHandoffs(filename, meta.handoffs),
   };
+}
+
+/**
+ * Coerces the frontmatter `handoffs` value into a list of agent ids. Accepts a
+ * YAML sequence of strings; a single string is treated as a one-element list.
+ * Non-string entries are rejected so a typo surfaces at load time rather than
+ * silently dropping a handoff target.
+ */
+function parseHandoffs(filename: string, value: unknown): string[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const entries = Array.isArray(value) ? value : [value];
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (typeof entry !== "string" || entry.length === 0) {
+      throw new Error(`${filename}: \`handoffs\` must be a string or list of non-empty agent ids.`);
+    }
+    if (!ids.includes(entry)) {
+      ids.push(entry);
+    }
+  }
+  return ids.length > 0 ? ids : undefined;
 }
