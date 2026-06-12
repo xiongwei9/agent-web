@@ -4,18 +4,13 @@ import { useEffect, useRef, useState } from "react";
 // `<a2ui-surface>` custom element and every basic-catalog component element
 // (Text, Button, Card, …) and wires their Lit implementations.
 import { basicCatalog } from "@a2ui/lit/v0_9";
-import { MessageProcessor, type A2uiClientAction, type SurfaceModel } from "@a2ui/web_core/v0_9";
+import { MessageProcessor, type A2uiMessage, type SurfaceModel } from "@a2ui/web_core/v0_9";
 
-/** What a user interaction on a surface sends back to the agent. */
-export interface A2uiActionPayload {
-  action: A2uiClientAction;
-  /** Aggregated data model for surfaces with `sendDataModel: true`, if any. */
-  dataModel: unknown;
-}
+import type { A2uiActionPayload } from "../lib/a2ui";
 
 interface A2uiSurfaceProps {
   /** Ordered A2UI v0.9 messages produced by the agent (the `render_a2ui` args). */
-  messages: unknown[];
+  messages: A2uiMessage[];
   onAction: (payload: A2uiActionPayload) => void;
 }
 
@@ -92,21 +87,14 @@ export function A2uiSurface({ messages, onAction }: A2uiSurfaceProps) {
  * `createSurface` is pinned to the installed `basicCatalog.id`, so a surface
  * still renders if the model emitted a slightly different catalog URL.
  */
-function normalizeMessages(messages: unknown[]): never {
-  const normalized = messages.map((message) => {
-    if (
-      message &&
-      typeof message === "object" &&
-      "createSurface" in message &&
-      message.createSurface &&
-      typeof message.createSurface === "object"
-    ) {
+function normalizeMessages(messages: A2uiMessage[]): A2uiMessage[] {
+  return messages.map((message) => {
+    if ("createSurface" in message && message.createSurface) {
       return {
         ...message,
         createSurface: { ...message.createSurface, catalogId: basicCatalog.id },
-      };
+      } as A2uiMessage;
     }
     return message;
   });
-  return normalized as never;
 }

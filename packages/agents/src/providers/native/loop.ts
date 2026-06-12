@@ -61,7 +61,7 @@ interface StreamTurn {
  *     if the model called server tools → execute them, emit TOOL_CALL_RESULT,
  *       append results to the prompt, and loop again
  *     if it called a client (HITL) tool → stop; the client fulfills it and
- *       resumes with a fresh run carrying the tool result
+ *       resumes with a fresh run carrying the user's response
  *     otherwise → done
  *   RUN_FINISHED
  *
@@ -98,7 +98,7 @@ async function drive(
   let prompt = buildPrompt(options.messages, options.persona, options.context);
   // `render_a2ui` is advertised here but not registered as a server tool, so the
   // loop's client-tool path stops the run when it's called and the client renders
-  // the A2UI surface (then resumes via a `tool` result with the user's action).
+  // the A2UI surface (then resumes via a `user` message with the user's action).
   const toolDefs = buildModelToolDefs(serverTools, options.clientTools, [a2uiRenderToolDef()]);
   const maxIterations = options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const compaction = resolveCompactionOptions(options.compaction);

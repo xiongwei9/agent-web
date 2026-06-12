@@ -15,7 +15,7 @@ import type { ModelFunctionTool } from "./types.ts";
  * stops a run whenever a non-server tool is called (see `loop.ts`), so calling
  * `render_a2ui` finishes the run and hands control to the client — exactly the
  * Human-in-the-Loop path. When the user interacts with the surface, the client
- * resumes the run with a `tool` result carrying the A2UI action, and the model
+ * resumes the run with a `user` message carrying the A2UI action, and the model
  * continues. Only the tool *definition* and the authoring guidance live
  * server-side; fulfillment (rendering + action capture) is the client's.
  */
@@ -36,7 +36,7 @@ export function a2uiRenderToolDef(): ModelFunctionTool {
       "Pass `messages`: an ordered list of A2UI v0.9 messages (createSurface, then " +
       "updateComponents, then any updateDataModel). Prefer this over plain text when a " +
       "card, form, list, or any interactive layout communicates better. If the surface " +
-      "has buttons or inputs, the user's action is returned to you as this tool's result.",
+      "has buttons or inputs, the user's action is returned in a later user message.",
     inputSchema: {
       type: "object",
       properties: {
@@ -124,7 +124,7 @@ Components are a FLAT array, not nested. Each has a unique \`id\` and a \`compon
 
 ## Data binding & actions
 - Bind a property to data with a JSON Pointer: \`"value": { "path": "/form/name" }\`. Literals are passed directly.
-- A Button (or other input) triggers a server action via \`"action": { "event": { "name": "<actionName>", "context": { ... } } }\`. When the user triggers it, you receive a tool result like \`{ "action": { "name": "<actionName>", "surfaceId", "sourceComponentId", "context": {...} }, "dataModel": { "version": "v0.9", "surfaces": { "<surfaceId>": { ...inputs... } } } }\`. Read it and continue (render another surface, or reply).
+- A Button (or other input) triggers a server action via \`"action": { "event": { "name": "<actionName>", "context": { ... } } }\`. When the user triggers it, you receive a later user message containing submitted fields as plain text, e.g. \`name: Ada\nnotes: Hello\`. Read it and continue (render another surface, or reply).
 
 ## Example
 \`\`\`json

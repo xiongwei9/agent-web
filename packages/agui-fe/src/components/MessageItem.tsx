@@ -1,6 +1,8 @@
+import { A2uiMessageListWrapperSchema, type A2uiMessage } from "@a2ui/web_core/v0_9";
 import type { Message } from "@ag-ui/core";
 
-import { A2uiSurface, type A2uiActionPayload } from "./A2uiSurface";
+import type { A2uiActionPayload } from "../lib/a2ui";
+import { A2uiSurface } from "./A2uiSurface";
 import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
 
@@ -11,7 +13,7 @@ interface MessageItemProps {
   message: Message;
   toolResults: Map<string, string>;
   /** Send a user's A2UI interaction back to the agent to resume the run. */
-  onA2uiAction: (toolCallId: string, payload: A2uiActionPayload) => void;
+  onA2uiAction: (payload: A2uiActionPayload) => void;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -52,13 +54,7 @@ export function MessageItem({ message, toolResults, onA2uiAction }: MessageItemP
               ? parseA2uiMessages(call.function.arguments)
               : undefined;
           if (surfaceMessages) {
-            return (
-              <A2uiSurface
-                key={call.id}
-                messages={surfaceMessages}
-                onAction={(payload) => onA2uiAction(call.id, payload)}
-              />
-            );
+            return <A2uiSurface key={call.id} messages={surfaceMessages} onAction={onA2uiAction} />;
           }
           return (
             <ToolCall
@@ -80,25 +76,16 @@ export function MessageItem({ message, toolResults, onA2uiAction }: MessageItemP
  * or no `messages` array yet), so we keep showing the generic tool view until
  * the full surface has arrived.
  */
-function parseA2uiMessages(args: string): unknown[] | undefined {
+function parseA2uiMessages(args: string): A2uiMessage[] | undefined {
   if (!args) {
     return undefined;
   }
   try {
-    const parsed = JSON.parse(args) as unknown;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      "messages" in parsed &&
-      Array.isArray(parsed.messages) &&
-      parsed.messages.length > 0
-    ) {
-      return parsed.messages as unknown[];
-    }
+    const result = A2uiMessageListWrapperSchema.safeParse(JSON.parse(args));
+    return result.success && result.data.messages.length > 0 ? result.data.messages : undefined;
   } catch {
     return undefined;
   }
-  return undefined;
 }
 
 /** Normalizes string-or-parts message content down to a display string. */

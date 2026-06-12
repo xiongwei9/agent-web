@@ -1,14 +1,14 @@
 import type { Message } from "@ag-ui/core";
 import { useMemo } from "react";
 
-import type { A2uiActionPayload } from "./A2uiSurface";
+import type { A2uiActionPayload } from "../lib/a2ui";
 import { MessageItem } from "./MessageItem";
 
 interface MessageListProps {
   messages: Message[];
   isRunning: boolean;
   /** Send a user's A2UI interaction back to the agent to resume the run. */
-  onA2uiAction: (toolCallId: string, payload: A2uiActionPayload) => void;
+  onA2uiAction: (payload: A2uiActionPayload) => void;
 }
 
 export function MessageList({ messages, isRunning, onA2uiAction }: MessageListProps) {

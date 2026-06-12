@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "pnpm run dev:server & pnpm run dev:fe",
     "dev:server": "pnpm --filter agui-server dev",
     "dev:fe": "pnpm --filter agui-fe dev",
     "lint": "eslint .",

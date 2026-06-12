@@ -2,6 +2,7 @@ import { HttpAgent } from "@ag-ui/client";
 import type { Message } from "@ag-ui/core";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
+import { formatA2uiUserMessage, type A2uiActionPayload } from "../lib/a2ui";
 import { AGUI_URL } from "../lib/agents";
 import { uid } from "../lib/ids";
 
@@ -18,11 +19,8 @@ export interface UseChat {
   error: string | null;
   /** Append a user message and start a run. */
   send: (text: string) => void;
-  /**
-   * Fulfill a pending `render_a2ui` tool call with the user's A2UI interaction
-   * and resume the run, so the agent sees the action and continues.
-   */
-  submitA2uiAction: (toolCallId: string, payload: unknown) => void;
+  /** Append the user's A2UI interaction as a user message and resume the run. */
+  submitA2uiAction: (payload: A2uiActionPayload) => void;
   /** Abort the in-flight run, if any. */
   stop: () => void;
   /** Clear the conversation and start a fresh thread. */
@@ -98,7 +96,7 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
     });
   }, []);
 
-  const submitA2uiAction = useCallback((toolCallId: string, payload: unknown) => {
+  const submitA2uiAction = useCallback((payload: A2uiActionPayload) => {
     const agent = agentRef.current;
     if (!agent || agent.isRunning) {
       return;
@@ -106,14 +104,12 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
 
     setError(null);
     setStatus("running");
-    // The A2UI surface was a client-fulfilled tool call; resume the run by
-    // replaying its result (the user's action + data model) — the server folds
-    // it back into the prompt as a tool result. See native prompt.ts.
+    // The A2UI surface captures a direct user interaction. Resume the run with
+    // that interaction as a normal user message rather than a tool result.
     agent.addMessage({
       id: uid("msg"),
-      role: "tool",
-      toolCallId,
-      content: JSON.stringify(payload),
+      role: "user",
+      content: formatA2uiUserMessage(payload),
     });
 
     void agent.runAgent({ tools: [], context: [] }).catch((runError: unknown) => {
