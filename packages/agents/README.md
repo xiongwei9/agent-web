@@ -9,6 +9,7 @@ Provider registrations live in `src/providers/index.ts`.
 - `auto`: use the first configured provider
 - `mastra`: Mastra streaming agent backed by a configurable language model
 - `agno`: proxy AG-UI runs to a Python agno service
+- `native`: framework-free agentic loop driving `@ai-sdk/*` models directly
 
 ## Configuration
 
@@ -28,6 +29,21 @@ all model providers.
 Mastra agents can also receive MCP tools through `AgentConfig.mcp.servers`.
 Supported transports are stdio, streamable HTTP, and SSE. Tool names are
 namespaced as `<serverId>__<toolName>` before being registered with Mastra.
+
+## Human-in-the-Loop
+
+The native provider declares two tools it never executes itself —
+`ask_user` and `request_user_approval` (`src/providers/native/hitl.ts`). Calling
+one suspends the run: the loop emits the `TOOL_CALL_*` events, finishes, and
+waits for the client to answer with a `tool` message for that `toolCallId` on the
+next run. Malformed calls are validated server-side and bounced back to the model
+as a tool result, so the client only ever receives a renderable prompt, and
+`buildPrompt` backfills a cancellation result for any prompt the user never
+answered.
+
+The A2UI render tool (`src/providers/native/a2ui.ts`) shares that suspend path
+for whole agent-authored surfaces; so do frontend tools a request declares in
+`RunAgentInput.tools`.
 
 ## Skills
 

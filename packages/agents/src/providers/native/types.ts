@@ -27,6 +27,25 @@ export interface NativeTool {
   hidden?: boolean;
 }
 
+/** Outcome of validating a client-fulfilled tool call's raw arguments. */
+export type ToolArgsValidation = { ok: true } | { ok: false; error: string };
+
+/**
+ * A tool the server declares to the model but the *client* fulfills — the A2UI
+ * render tool and the HITL prompts. The loop advertises `def` alongside the
+ * server tools, then suspends the run when one is called so the client can
+ * render it and resume with the user's response.
+ */
+export interface FrontendTool {
+  def: ModelFunctionTool;
+  /**
+   * Optional argument check. A failure is fed back to the model as the call's
+   * tool result (`error` is shown verbatim) so it can self-correct, instead of
+   * handing the client a prompt it can't render.
+   */
+  validate?: (rawArgs: string) => ToolArgsValidation;
+}
+
 export interface ModelTextPart {
   type: "text";
   text: string;

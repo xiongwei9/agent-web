@@ -2,6 +2,7 @@ import type { Context, Message } from "@ag-ui/core";
 
 import { contextToText } from "../shared.ts";
 import { A2UI_RENDER_TOOL_NAME } from "./a2ui.ts";
+import { HITL_ASK_USER_TOOL_NAME, HITL_REQUEST_APPROVAL_TOOL_NAME } from "./hitl.ts";
 import type { ModelAssistantContentPart, ModelMessage, ModelTextPart } from "./types.ts";
 
 /**
@@ -13,6 +14,12 @@ import type { ModelAssistantContentPart, ModelMessage, ModelTextPart } from "./t
  *
  * To emit spec-valid tool-result parts (which require the tool's name) we track
  * each tool call's name from the assistant messages as we walk the history.
+ *
+ * Tool calls the client never answered are backfilled with a placeholder result
+ * (see {@link unansweredToolResult}). A run suspended on a Human-in-the-Loop
+ * prompt leaves one open by design, and the user may simply type instead of
+ * answering it — model APIs reject a prompt whose tool call has no result, so
+ * the history is closed out here rather than failing the next run.
  */
 export function buildPrompt(
   messages: Message[],
@@ -28,6 +35,11 @@ export function buildPrompt(
 
   const toolNameById = new Map<string, string>();
   const a2uiToolCallIds = new Set<string>();
+  const answeredToolCallIds = new Set(
+    messages
+      .filter((message) => message.role === "tool")
+      .map((message) => (message as { toolCallId: string }).toolCallId),
+  );
 
   for (const message of messages) {
     switch (message.role) {
@@ -67,6 +79,21 @@ export function buildPrompt(
         if (content.length > 0) {
           prompt.push({ role: "assistant", content });
         }
+        for (const part of content) {
+          if (part.type === "tool-call" && !answeredToolCallIds.has(part.toolCallId)) {
+            prompt.push({
+              role: "tool",
+              content: [
+                {
+                  type: "tool-result",
+                  toolCallId: part.toolCallId,
+                  toolName: part.toolName,
+                  output: { type: "text", value: unansweredToolResult(part.toolName) },
+                },
+              ],
+            });
+          }
+        }
         break;
       }
       case "tool": {
@@ -97,6 +124,22 @@ export function buildPrompt(
   }
 
   return prompt;
+}
+
+/**
+ * Stands in for a tool call the client never answered. Human-in-the-Loop
+ * prompts get the cancellation payload their contract documents, so the model
+ * reads it the same way as a user-dismissed prompt; anything else gets a plain
+ * note that the call went unfulfilled.
+ */
+function unansweredToolResult(toolName: string): string {
+  if (toolName === HITL_ASK_USER_TOOL_NAME || toolName === HITL_REQUEST_APPROVAL_TOOL_NAME) {
+    return JSON.stringify({
+      cancelled: true,
+      reason: "The user did not answer this prompt and continued the conversation instead.",
+    });
+  }
+  return "No result was returned for this tool call; it was not completed.";
 }
 
 function extractUserText(content: unknown): string {

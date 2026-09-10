@@ -4,6 +4,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { formatA2uiUserMessage, type A2uiActionPayload } from "../lib/a2ui";
 import { AGUI_URL } from "../lib/agents";
+import { formatCancellation, findPendingHitlCalls } from "../lib/hitl";
 import { uid } from "../lib/ids";
 
 export type ChatStatus = "idle" | "running";
@@ -21,6 +22,11 @@ export interface UseChat {
   send: (text: string) => void;
   /** Append the user's A2UI interaction as a user message and resume the run. */
   submitA2uiAction: (payload: A2uiActionPayload) => void;
+  /**
+   * Answer a suspended Human-in-the-Loop tool call: append the response as that
+   * call's `tool` result and resume the run.
+   */
+  respondToToolCall: (toolCallId: string, content: string) => void;
   /** Abort the in-flight run, if any. */
   stop: () => void;
   /** Clear the conversation and start a fresh thread. */
@@ -41,6 +47,8 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
   const [threadGeneration, newThread] = useReducer((n: number) => n + 1, 0);
 
   const agentRef = useRef<HttpAgent | null>(null);
+  // Latest messages, readable from callbacks without making them depend on state.
+  const messagesRef = useRef<Message[]>([]);
 
   useEffect(() => {
     const agent = new HttpAgent({
@@ -50,13 +58,16 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
       headers: { "x-agent-id": agentId },
     });
     agentRef.current = agent;
+    messagesRef.current = [];
     setMessages([]);
     setStatus("idle");
     setError(null);
 
     const subscription = agent.subscribe({
       onMessagesChanged: ({ messages: next }) => {
-        setMessages([...next]);
+        const snapshot = [...next];
+        messagesRef.current = snapshot;
+        setMessages(snapshot);
       },
       onRunErrorEvent: ({ event }) => {
         setError(event.message ?? "Agent run failed");
@@ -86,10 +97,24 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
 
     setError(null);
     setStatus("running");
+
+    // The user typed instead of answering an open HITL prompt. Close those calls
+    // out first: the model can't take another turn while one of its tool calls
+    // has no result, and this tells it the prompt was skipped.
+    for (const pending of findPendingHitlCalls(messagesRef.current)) {
+      agent.addMessage({
+        id: uid("msg"),
+        role: "tool",
+        toolCallId: pending.toolCallId,
+        content: formatCancellation(),
+      });
+    }
+
     agent.addMessage({ id: uid("msg"), role: "user", content });
 
     // The server's RunAgentInput schema requires `tools`/`context` arrays; pass
-    // them explicitly since this client registers no frontend tools.
+    // them explicitly since this client registers no frontend tools. The HITL
+    // and A2UI tools are declared server-side and fulfilled here.
     void agent.runAgent({ tools: [], context: [] }).catch((runError: unknown) => {
       setError(runError instanceof Error ? runError.message : "Agent run failed");
       setStatus("idle");
@@ -118,6 +143,24 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
     });
   }, []);
 
+  const respondToToolCall = useCallback((toolCallId: string, content: string) => {
+    const agent = agentRef.current;
+    if (!agent || agent.isRunning) {
+      return;
+    }
+
+    setError(null);
+    setStatus("running");
+    // The suspended run left this tool call open; answering it as a `tool`
+    // message lets the model pick up exactly where it stopped.
+    agent.addMessage({ id: uid("msg"), role: "tool", toolCallId, content });
+
+    void agent.runAgent({ tools: [], context: [] }).catch((runError: unknown) => {
+      setError(runError instanceof Error ? runError.message : "Agent run failed");
+      setStatus("idle");
+    });
+  }, []);
+
   const stop = useCallback(() => {
     agentRef.current?.abortRun();
     setStatus("idle");
@@ -128,5 +171,5 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
     newThread();
   }, []);
 
-  return { messages, status, error, send, submitA2uiAction, stop, reset };
+  return { messages, status, error, send, submitA2uiAction, respondToToolCall, stop, reset };
 }

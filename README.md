@@ -51,6 +51,38 @@ server 自身不包含 agent logic。它会使用已加载的 config 调用 [`cr
   name/description catalog 会被注入 prompt，完整的 `SKILL.md` 及打包资源仅在
   skill 被调用时加载。
 
+### Human-in-the-Loop（HITL）
+
+native provider 会额外向 model 声明两个**由 client 兑现**的 tools（见
+[`providers/native/hitl.ts`](packages/agents/src/providers/native/hitl.ts)）：
+
+| Tool | 用途 | 回给 model 的结果 |
+| --- | --- | --- |
+| `ask_user` | 向用户提问：自由文本，或用 `options` 给出单选/多选。 | `{"answer": "…"}`（多选时为数组） |
+| `request_user_approval` | 在执行有后果、难以撤销的操作前请求批准。 | `{"decision": "approved" 或 "rejected", "comment"?: "…"}` |
+
+两者都没有注册为 server tool，因此 model 调用时 loop 会**挂起这次 run**：server 照常发出
+`TOOL_CALL_START/ARGS/END` 并以 `RUN_FINISHED` 收尾，交由 client 渲染交互卡片。用户作出响应后，
+client 用同一个 `toolCallId` 追加一条 `tool` message 并发起新的 run，model 读到的就是一次普通的
+tool result，可以从中断处继续。
+
+```
+model → ask_user / request_user_approval
+   └─ TOOL_CALL_* + RUN_FINISHED          run 挂起，等待用户
+        └─ 用户在 UI 上作答
+             └─ client 追加 { role: "tool", toolCallId, content } 后发起新的 run
+                  └─ model 读到 tool result，继续原来的思路
+```
+
+同一条挂起路径也服务于 A2UI 的 `render_a2ui`（区别是它以 `user` message 恢复），以及 client 自己在
+`RunAgentInput.tools` 中声明的 frontend tools。两个细节保证了它在真实对话里不会卡住：
+
+- 参数非法的 HITL 调用不会到达 client。loop 把 schema 错误当作 tool result 回灌给 model，让它当场修正后重新调用。
+- 用户可以不理会卡片、直接在输入框继续聊天。此时 [`agui-fe`](packages/agui-fe/) 会先补一条
+  `{"cancelled": true}` 的 tool result；server 端的
+  [`buildPrompt`](packages/agents/src/providers/native/prompt.ts) 也会为任何未被回答的 tool call 兜底补齐，
+  避免 model API 因「有 tool call 却没有对应 tool result」而报错。
+
 ## 快速开始
 
 需要 Node >= 22.13 和 [pnpm](https://pnpm.io) 10。

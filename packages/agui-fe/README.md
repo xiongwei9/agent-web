@@ -34,11 +34,12 @@ the resulting `Message[]` and calls `send`/`stop`/`reset`.
 
 | File | Responsibility |
 | --- | --- |
-| [`hooks/useChat.ts`](src/hooks/useChat.ts) | Owns one `HttpAgent`, mirrors its `messages`/status/error into React state, exposes `send`/`stop`/`reset`. Recreates the agent (fresh thread) when the agent id changes or `reset()` is called. |
+| [`hooks/useChat.ts`](src/hooks/useChat.ts) | Owns one `HttpAgent`, mirrors its `messages`/status/error into React state, exposes `send`/`stop`/`reset` plus the resume paths (`respondToToolCall`, `submitA2uiAction`). Recreates the agent (fresh thread) when the agent id changes or `reset()` is called. |
 | [`lib/agents.ts`](src/lib/agents.ts) | Agent catalog + the `/agui` endpoint URL. |
 | [`components/Chat.tsx`](src/components/Chat.tsx) | Wires the hook to the view: autoscroll, status bar, error banner. |
 | [`components/MessageList.tsx`](src/components/MessageList.tsx) | Renders user/assistant messages; attaches `tool` result messages to their originating tool call by `toolCallId`. |
 | [`components/MessageItem.tsx`](src/components/MessageItem.tsx) / [`ToolCall.tsx`](src/components/ToolCall.tsx) / [`Markdown.tsx`](src/components/Markdown.tsx) | A single message, a collapsible tool-call card, and Markdown rendering. |
+| [`components/HitlPrompt.tsx`](src/components/HitlPrompt.tsx) / [`lib/hitl.ts`](src/lib/hitl.ts) | The Human-in-the-Loop card — a question or an approval gate — and the contract for parsing the call and formatting the answer. |
 | [`components/Composer.tsx`](src/components/Composer.tsx) | Input box; Enter sends, Shift+Enter newlines, Stop aborts a run. |
 
 ### Streaming model
@@ -49,6 +50,26 @@ from `⟳` to `✓` when their result event lands. Because the reduction is keye
 the server-assigned `messageId`, those ids **must be unique per run** — the
 server namespaces them with the `runId` so consecutive answers don't merge into
 one bubble.
+
+### Human-in-the-Loop
+
+When the agent calls `ask_user` or `request_user_approval`, the server streams
+the tool call and ends the run — the turn is **suspended**, not finished.
+`MessageItem` renders such a call as an interactive card instead of the generic
+tool view, and the user's response resumes the conversation:
+
+```
+assistant.toolCalls[ask_user]        run finished, the call has no result yet
+  └─ HitlPrompt renders the question / approval gate
+       └─ useChat.respondToToolCall(toolCallId, '{"answer":"prod"}')
+            ├─ agent.addMessage({ role: "tool", toolCallId, content })
+            └─ agent.runAgent(…)      new runId, same threadId
+```
+
+Answering in the composer instead is fine: `send()` first closes any open prompt
+with `{"cancelled": true}`, because the model cannot take another turn while one
+of its tool calls has no result. The A2UI surface uses the same suspend path but
+resumes with a `user` message rather than a tool result.
 
 ## Develop
 

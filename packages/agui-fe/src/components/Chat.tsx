@@ -9,7 +9,8 @@ interface ChatProps {
 }
 
 export function Chat({ agentId }: ChatProps) {
-  const { messages, status, error, send, submitA2uiAction, stop, reset } = useChat({ agentId });
+  const { messages, status, error, send, submitA2uiAction, respondToToolCall, stop, reset } =
+    useChat({ agentId });
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Keep the latest message in view as the stream grows.
@@ -49,7 +50,12 @@ export function Chat({ agentId }: ChatProps) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-2" ref={scrollRef}>
-        <MessageList messages={messages} isRunning={isRunning} onA2uiAction={submitA2uiAction} />
+        <MessageList
+          messages={messages}
+          isRunning={isRunning}
+          onA2uiAction={submitA2uiAction}
+          onHitlRespond={respondToToolCall}
+        />
         {error ? (
           <div className="mt-3 rounded-xl border border-danger bg-danger/10 px-3.5 py-2.5 text-sm text-danger">
             ⚠ {error}

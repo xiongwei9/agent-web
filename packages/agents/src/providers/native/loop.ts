@@ -4,8 +4,7 @@ import { EventType, type BaseEvent, type Context, type Message, type Tool } from
 import { Observable, type Subscriber } from "rxjs";
 
 import { aguiEvent } from "../../events.ts";
-import { A2UI_RENDER_TOOL_NAME, a2uiRenderToolDef, validateA2uiMessages } from "./a2ui.ts";
-import { buildModelToolDefs } from "./tools.ts";
+import { buildModelToolDefs, builtinFrontendTools } from "./tools.ts";
 import { buildPrompt } from "./prompt.ts";
 import {
   compactPromptIfNeeded,
@@ -60,7 +59,8 @@ interface StreamTurn {
  *     stream the model → TEXT_MESSAGE_* / TOOL_CALL_* events
  *     if the model called server tools → execute them, emit TOOL_CALL_RESULT,
  *       append results to the prompt, and loop again
- *     if it called a client (HITL) tool → stop; the client fulfills it and
+ *     if it called a client tool (an A2UI surface, a Human-in-the-Loop prompt,
+ *       or a tool the request declared) → suspend; the client fulfills it and
  *       resumes with a fresh run carrying the user's response
  *     otherwise → done
  *   RUN_FINISHED
@@ -96,10 +96,16 @@ async function drive(
   subscriber.next(aguiEvent({ type: EventType.RUN_STARTED, threadId, runId }));
 
   let prompt = buildPrompt(options.messages, options.persona, options.context);
-  // `render_a2ui` is advertised here but not registered as a server tool, so the
-  // loop's client-tool path stops the run when it's called and the client renders
-  // the A2UI surface (then resumes via a `user` message with the user's action).
-  const toolDefs = buildModelToolDefs(serverTools, options.clientTools, [a2uiRenderToolDef()]);
+  // Server-declared but client-fulfilled tools (the A2UI surface renderer and
+  // the HITL prompts). They are advertised to the model like any other tool;
+  // because they aren't registered as server tools, calling one takes the
+  // client-tool path below and suspends the run.
+  const frontendTools = builtinFrontendTools();
+  const toolDefs = buildModelToolDefs(
+    serverTools,
+    options.clientTools,
+    [...frontendTools.values()].map((tool) => tool.def),
+  );
   const maxIterations = options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
   const compaction = resolveCompactionOptions(options.compaction);
 
@@ -160,62 +166,53 @@ async function drive(
       break;
     }
 
-    // Validate every `render_a2ui` call against the official A2UI schema before
-    // we hand anything off. A VALID surface is client-fulfilled; an INVALID one
-    // is bounced back to the model (below) so it fixes the JSON and re-emits,
-    // rather than streaming broken UI to the client.
-    const a2uiErrors = new Map<string, string>();
+    // Client-fulfilled calls can't run here. Validate the ones we declared
+    // ourselves first: a malformed call is bounced back to the model so it can
+    // self-correct, rather than handing the client a prompt it can't render.
+    const invalidCalls = new Map<string, string>();
+    const pendingCalls: CollectedToolCall[] = [];
     for (const call of turn.toolCalls) {
-      if (call.toolName !== A2UI_RENDER_TOOL_NAME) {
+      if (serverTools.has(call.toolName)) {
         continue;
       }
-      const validation = validateA2uiMessages(call.rawInput);
-      if (!validation.ok) {
-        a2uiErrors.set(call.toolCallId, validation.error);
+      const validation = frontendTools.get(call.toolName)?.validate?.(call.rawInput);
+      if (validation && !validation.ok) {
+        invalidCalls.set(call.toolCallId, validation.error);
+      } else {
+        pendingCalls.push(call);
       }
     }
 
-    // Nothing to fix: a valid `render_a2ui` (or any other client/HITL tool) can't
-    // be executed here — finish the run and let the client fulfill it and resume.
-    // The TOOL_CALL_* events were already emitted.
-    if (a2uiErrors.size === 0 && turn.toolCalls.some((call) => !serverTools.has(call.toolName))) {
-      break;
-    }
-
+    // Answer every call we can before the model's next turn: server tools run,
+    // invalid client calls get their error back. Only `pendingCalls` are left
+    // open — the client answers those when it resumes the run, which keeps the
+    // resumed history well-formed even when the model mixed a client tool with
+    // server ones in the same turn.
     for (const call of turn.toolCalls) {
-      if (call.toolName === A2UI_RENDER_TOOL_NAME) {
-        const error = a2uiErrors.get(call.toolCallId);
-        if (error === undefined) {
-          // Valid surface mixed with an invalid sibling (rare): the client will
-          // render it on resume, so don't execute or bounce it here.
-          continue;
-        }
-        const message =
-          `A2UI validation failed; fix the JSON and call ${A2UI_RENDER_TOOL_NAME} again. ` +
-          `The messages ${error}`;
+      const invalidReason = invalidCalls.get(call.toolCallId);
+      if (invalidReason !== undefined) {
         subscriber.next(
           aguiEvent({
             type: EventType.TOOL_CALL_RESULT,
             messageId: `${call.toolCallId}-result`,
             toolCallId: call.toolCallId,
-            content: message,
+            content: invalidReason,
             role: "tool",
           }),
         );
-        prompt.push(toToolResultMessage(call, message));
+        prompt.push(toToolResultMessage(call, invalidReason));
         continue;
       }
 
-      // Other client (HITL) tools can't run here; only reachable when bundled with
-      // an invalid render_a2ui that kept the run going. Leave them for a resume.
-      if (!serverTools.has(call.toolName)) {
+      const tool = serverTools.get(call.toolName);
+      if (!tool) {
         continue;
       }
 
       const result = await executeServerTool(serverTools, call);
       // Hidden tools (e.g. skills plumbing) feed their result back to the model
       // but emit no AG-UI result event — matching the suppressed start/args/end.
-      if (!serverTools.get(call.toolName)?.hidden) {
+      if (!tool.hidden) {
         subscriber.next(
           aguiEvent({
             type: EventType.TOOL_CALL_RESULT,
@@ -227,6 +224,12 @@ async function drive(
         );
       }
       prompt.push(toToolResultMessage(call, result));
+    }
+
+    // Suspend the run for the client: it renders the surface / HITL prompt and
+    // resumes with the user's response. The TOOL_CALL_* events are already out.
+    if (pendingCalls.length > 0) {
+      break;
     }
   }
 

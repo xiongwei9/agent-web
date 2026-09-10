@@ -2,7 +2,9 @@ import { A2uiMessageListWrapperSchema, type A2uiMessage } from "@a2ui/web_core/v
 import type { Message } from "@ag-ui/core";
 
 import type { A2uiActionPayload } from "../lib/a2ui";
+import { parseHitlRequest } from "../lib/hitl";
 import { A2uiSurface } from "./A2uiSurface";
+import { HitlPrompt } from "./HitlPrompt";
 import { Markdown } from "./Markdown";
 import { ToolCall } from "./ToolCall";
 
@@ -12,8 +14,12 @@ const A2UI_RENDER_TOOL_NAME = "render_a2ui";
 interface MessageItemProps {
   message: Message;
   toolResults: Map<string, string>;
+  /** A run is in flight, so the interactive cards can't be answered right now. */
+  isRunning: boolean;
   /** Send a user's A2UI interaction back to the agent to resume the run. */
   onA2uiAction: (payload: A2uiActionPayload) => void;
+  /** Answer a suspended Human-in-the-Loop tool call to resume the run. */
+  onHitlRespond: (toolCallId: string, content: string) => void;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -21,7 +27,13 @@ const ROLE_LABEL: Record<string, string> = {
   assistant: "Assistant",
 };
 
-export function MessageItem({ message, toolResults, onA2uiAction }: MessageItemProps) {
+export function MessageItem({
+  message,
+  toolResults,
+  isRunning,
+  onA2uiAction,
+  onHitlRespond,
+}: MessageItemProps) {
   const role = message.role;
   const text = extractText(message);
   const toolCalls = message.role === "assistant" ? (message.toolCalls ?? []) : [];
@@ -55,6 +67,20 @@ export function MessageItem({ message, toolResults, onA2uiAction }: MessageItemP
               : undefined;
           if (surfaceMessages) {
             return <A2uiSurface key={call.id} messages={surfaceMessages} onAction={onA2uiAction} />;
+          }
+          // A HITL call is the agent waiting on the user: render the prompt (or
+          // the answer it got) instead of the generic tool card.
+          const hitlRequest = parseHitlRequest(call.function.name, call.function.arguments);
+          if (hitlRequest) {
+            return (
+              <HitlPrompt
+                key={call.id}
+                request={hitlRequest}
+                result={toolResults.get(call.id)}
+                busy={isRunning}
+                onRespond={(content) => onHitlRespond(call.id, content)}
+              />
+            );
           }
           return (
             <ToolCall

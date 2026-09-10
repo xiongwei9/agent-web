@@ -1,8 +1,10 @@
 import type { McpConfig } from "../../types.ts";
 import { isRecord, localAgentTools, normalizeToolParameters } from "../shared.ts";
+import { a2uiFrontendTool } from "./a2ui.ts";
+import { hitlFrontendTools } from "./hitl.ts";
 import { createMcpToolRegistry, type McpToolRegistry } from "./mcp.ts";
 import { SkillsToolset } from "./skills.ts";
-import type { ModelFunctionTool, NativeTool } from "./types.ts";
+import type { FrontendTool, ModelFunctionTool, NativeTool } from "./types.ts";
 
 /**
  * Owns the tools the native agent executes server-side: the local builtins
@@ -53,6 +55,24 @@ export class NativeToolset {
 
     return tools;
   }
+}
+
+/**
+ * The tools the server declares but the client fulfills: the A2UI render tool
+ * and the Human-in-the-Loop prompts. They are advertised to the model like any
+ * other tool, but calling one suspends the run (see `loop.ts`) so the client can
+ * render it and resume with the user's response.
+ *
+ * Keyed by tool name so the loop can find a call's validator; the client tools a
+ * request declares in `RunAgentInput.tools` go through the same suspend path
+ * but have no server-side validation.
+ */
+export function builtinFrontendTools(): Map<string, FrontendTool> {
+  const tools = new Map<string, FrontendTool>();
+  for (const tool of [a2uiFrontendTool(), ...hitlFrontendTools()]) {
+    tools.set(tool.def.name, tool);
+  }
+  return tools;
 }
 
 /** Converts a server-side tool into a model function declaration. */

@@ -9,9 +9,16 @@ interface MessageListProps {
   isRunning: boolean;
   /** Send a user's A2UI interaction back to the agent to resume the run. */
   onA2uiAction: (payload: A2uiActionPayload) => void;
+  /** Answer a suspended Human-in-the-Loop tool call to resume the run. */
+  onHitlRespond: (toolCallId: string, content: string) => void;
 }
 
-export function MessageList({ messages, isRunning, onA2uiAction }: MessageListProps) {
+export function MessageList({
+  messages,
+  isRunning,
+  onA2uiAction,
+  onHitlRespond,
+}: MessageListProps) {
   // Tool results arrive as standalone `tool` messages keyed by toolCallId. We
   // attach them to the originating tool call instead of rendering them on their
   // own, so map them up front.
@@ -45,7 +52,9 @@ export function MessageList({ messages, isRunning, onA2uiAction }: MessageListPr
           key={message.id}
           message={message}
           toolResults={toolResults}
+          isRunning={isRunning}
           onA2uiAction={onA2uiAction}
+          onHitlRespond={onHitlRespond}
         />
       ))}
       {isRunning ? (

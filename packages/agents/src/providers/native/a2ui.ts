@@ -1,6 +1,6 @@
 import { A2uiMessageListSchema } from "@a2ui/web_core/v0_9";
 
-import type { ModelFunctionTool } from "./types.ts";
+import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./types.ts";
 
 /**
  * A2UI (Agent-to-UI) support for the native agent loop.
@@ -12,14 +12,42 @@ import type { ModelFunctionTool } from "./types.ts";
  * `@a2ui/lit` renderer.
  *
  * The tool is intentionally NOT registered as a server tool. The native loop
- * stops a run whenever a non-server tool is called (see `loop.ts`), so calling
- * `render_a2ui` finishes the run and hands control to the client — exactly the
- * Human-in-the-Loop path. When the user interacts with the surface, the client
- * resumes the run with a `user` message carrying the A2UI action, and the model
- * continues. Only the tool *definition* and the authoring guidance live
- * server-side; fulfillment (rendering + action capture) is the client's.
+ * suspends a run whenever a client tool is called (see `loop.ts`), so calling
+ * `render_a2ui` finishes the run and hands control to the client. When the user
+ * interacts with the surface, the client resumes the run with a `user` message
+ * carrying the A2UI action, and the model continues. Only the tool *definition*
+ * and the authoring guidance live server-side; fulfillment (rendering + action
+ * capture) is the client's.
+ *
+ * This is the free-form end of the Human-in-the-Loop spectrum — a whole
+ * agent-authored surface, answered as a user message. For a single question or
+ * an approval gate, whose answer comes back as a proper tool result, see
+ * `hitl.ts`.
  */
 export const A2UI_RENDER_TOOL_NAME = "render_a2ui";
+
+/**
+ * The client-fulfilled A2UI tool, ready for the loop's frontend-tool registry:
+ * the declaration advertised to the model plus the schema check that keeps a
+ * broken surface from ever reaching the client.
+ */
+export function a2uiFrontendTool(): FrontendTool {
+  return {
+    def: a2uiRenderToolDef(),
+    validate: (rawArgs) => {
+      const validation = validateA2uiMessages(rawArgs);
+      if (validation.ok) {
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error:
+          `A2UI validation failed; fix the JSON and call ${A2UI_RENDER_TOOL_NAME} again. ` +
+          `The messages ${validation.error}`,
+      };
+    },
+  };
+}
 
 /**
  * The function declaration advertised to the model. A2UI v0.9 is "prompt-first"
@@ -27,7 +55,7 @@ export const A2UI_RENDER_TOOL_NAME = "render_a2ui";
  * {@link a2uiSystemPromptSection}), so the tool's JSON Schema stays permissive
  * and only pins the envelope: a list of A2UI message objects.
  */
-export function a2uiRenderToolDef(): ModelFunctionTool {
+function a2uiRenderToolDef(): ModelFunctionTool {
   return {
     type: "function",
     name: A2UI_RENDER_TOOL_NAME,
@@ -52,18 +80,16 @@ export function a2uiRenderToolDef(): ModelFunctionTool {
   };
 }
 
-/** Outcome of validating a `render_a2ui` tool call's arguments. */
-export type A2uiValidation = { ok: true } | { ok: false; error: string };
-
 /**
  * Validates the raw `render_a2ui` arguments against the official A2UI v0.9
  * message schema from `@a2ui/web_core`, so the loop can hand the client a
  * well-formed surface — or bounce a clear error back to the model to self-correct
  * — instead of streaming broken UI. Catches envelope mistakes (missing version,
  * wrong message shape, components not a list, …); component-property errors that
- * are catalog-specific still surface in the renderer.
+ * are catalog-specific still surface in the renderer. `error` is a sentence
+ * fragment completing "The messages …".
  */
-export function validateA2uiMessages(rawArgs: string): A2uiValidation {
+function validateA2uiMessages(rawArgs: string): ToolArgsValidation {
   let parsed: unknown;
   try {
     parsed = rawArgs ? JSON.parse(rawArgs) : undefined;

@@ -17,6 +17,7 @@ import type {
   McpConfig,
 } from "../../types.ts";
 import { a2uiSystemPromptSection } from "./a2ui.ts";
+import { hitlSystemPromptSection } from "./hitl.ts";
 import { runNativeAgent } from "./loop.ts";
 import { NativeToolset } from "./tools.ts";
 import type { NativeLanguageModel } from "./types.ts";
@@ -36,7 +37,8 @@ interface NativeAgentOptions {
  *
  * Tools available to the loop: local builtins, Agent Skills (with Claude
  * Code–style progressive disclosure — see {@link NativeToolset}), MCP server
- * tools, and client/HITL tools.
+ * tools, and client-fulfilled tools — A2UI surfaces, the Human-in-the-Loop
+ * prompts, and whatever the request declares in `RunAgentInput.tools`.
  */
 export const nativeAgentProvider: AgentProvider = {
   id: "native",
@@ -138,15 +140,19 @@ function createNativeAgent(options: NativeAgentOptions): AgentRunner {
 
 /**
  * Composes the agent's system prompt: its instructions, the Level-1 skill
- * catalog, and the A2UI authoring guide (so it can render generative UI via the
- * `render_a2ui` tool).
+ * catalog, the A2UI authoring guide (so it can render generative UI via the
+ * `render_a2ui` tool), and the Human-in-the-Loop guide (so it knows when to stop
+ * and ask the user rather than guess or act unilaterally).
  */
 function composePersona(
   instructions: string | undefined,
   skillsCatalog: string | undefined,
 ): string | undefined {
-  const parts = [instructions, skillsCatalog, a2uiSystemPromptSection()].filter(
-    (part): part is string => Boolean(part && part.trim()),
-  );
+  const parts = [
+    instructions,
+    skillsCatalog,
+    a2uiSystemPromptSection(),
+    hitlSystemPromptSection(),
+  ].filter((part): part is string => Boolean(part && part.trim()));
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
