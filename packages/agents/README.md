@@ -23,6 +23,9 @@ src/
   skills/           Agent Skills: the SKILL.md folders, their loader, and the
                     skill tools (toolset.ts)
   client-tools/     client-fulfilled tools: A2UI surfaces, HITL prompts
+  code-mode/        code mode: the execute_code / search_tools tools, the
+                    tools' TypeScript declarations, the type check, and the
+                    QuickJS sandbox
   shared/           AG-UI event helper, logger, small utilities
   system-prompt.md  the default system prompt
 ```
@@ -66,6 +69,33 @@ only where that is acceptable.
 A run is aborted when its Observable is unsubscribed (e.g. the HTTP client
 disconnects). Server tools get the run's `AbortSignal`: MCP calls are cancelled
 and skill scripts are killed.
+
+`codeMode` switches how the model uses tools. Off (the default), every server
+tool is offered to the model directly. With `codeMode.enabled`, the builtin and
+MCP tools are replaced by one `execute_code` tool: the model writes the body of
+an async TypeScript function that calls them as `tools.<name>(args)`, chains
+and filters their results, and returns only what it needs.
+
+- Types: each tool is declared as TypeScript generated from its JSON Schemas.
+  An MCP tool with an `outputSchema` resolves to its `structuredContent`, typed
+  by that schema; other tools resolve to their text. A tool-level error
+  (`isError`) throws inside the code, so it can be caught.
+- Type check (`codeMode.typeCheck`, default on): the code is checked against
+  the declarations before it runs, so a misspelled tool, a wrong argument or a
+  misread result comes back as type errors and no tool is called. The check is
+  lenient (no strict null checks, implicit `any` allowed). The first check
+  parses the standard library (~100 ms); later ones take a few ms.
+- Discovery (`codeMode.toolDiscovery`): `inline` puts every declaration in the
+  `execute_code` description; `search` lists only the tool names and adds a
+  `search_tools` tool that returns the declarations the model asks for, by
+  keywords or names, so the prompt stays small however many MCP tools there
+  are. `auto` (default) inlines up to ~8k characters of declarations.
+- Sandbox: a fresh QuickJS (WebAssembly) runtime per call, with no network,
+  file system, timers, or modules, a 64 MB memory cap, and
+  `codeMode.timeoutMs` (default 30s) for the whole call, tool calls included.
+
+Skills tools and client tools (A2UI, HITL, request-declared tools) stay direct:
+they suspend the run or steer the model rather than fetch data.
 
 MCP tools come from `AgentConfig.mcp.servers`. Streamable HTTP is the preferred
 transport and the default for a `url` without `transport`; stdio (`command`) and

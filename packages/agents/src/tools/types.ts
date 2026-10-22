@@ -16,6 +16,16 @@ export interface ServerTool {
    * internal plumbing the UI shouldn't render — e.g. the Agent Skills tools.
    */
   hidden?: boolean;
+  /**
+   * How code mode's scripts call the tool, when it can hand them more than
+   * `execute`'s text: `execute` resolves to the value the script receives —
+   * described by `outputSchema` when given — and throws on a tool-level
+   * failure. Without it, scripts receive `execute`'s text.
+   */
+  code?: {
+    outputSchema?: Record<string, unknown>;
+    execute: (args: Record<string, unknown>, context?: ToolExecutionContext) => Promise<unknown>;
+  };
 }
 
 export interface ToolExecutionContext {

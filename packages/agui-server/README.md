@@ -30,6 +30,17 @@ Optional configuration:
 - `AGENT_MAX_TOOL_ITERATIONS` caps rounds of tool calls per run (16 when unset;
   `.env.example` sets 4). After the last round the model answers with tools
   disabled.
+- `AGENT_CODE_MODE` is the code mode switch (`on`/`off`, default `off`). On,
+  the builtin and MCP tools are no longer offered one by one: the model gets a
+  single `execute_code` tool and calls them from TypeScript, which runs in a
+  QuickJS sandbox with no network, file system, or process access.
+  `AGENT_CODE_MODE_TIMEOUT_MS` limits each run (default 30000). Skills and the
+  A2UI / HITL tools are unaffected.
+- `AGENT_CODE_MODE_TOOL_DISCOVERY` switches code mode's tool discovery: `on`
+  lists only the tool names and lets the model look up their declarations
+  with a `search_tools` tool, so the prompt stays small however many MCP tools
+  there are; `off` puts every declaration in the prompt; `auto` (default)
+  inlines them while they're short (~8k characters) and searches beyond that.
 - `LOG_LEVEL=debug` also logs every full prompt and response, tool results
   included; keep it off where those must not reach the logs
 - `SESSION_SECRET` signs the session cookie (see [Sessions](#sessions))

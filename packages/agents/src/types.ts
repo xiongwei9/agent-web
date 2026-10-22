@@ -122,6 +122,33 @@ export interface ContextCompactionConfig {
   keepRecentMessages?: number;
 }
 
+/**
+ * Code mode: the model calls the server tools (builtins, MCP) by writing
+ * JavaScript for one `execute_code` tool instead of calling each tool itself.
+ * The code runs in a QuickJS sandbox with no network, file system, or process
+ * access — only the tools.
+ */
+export interface CodeModeConfig {
+  /** Master switch. Defaults to disabled: every tool is offered directly. */
+  enabled?: boolean;
+  /** Wall-clock limit for one `execute_code` call, its tool calls included (default 30s). */
+  timeoutMs?: number;
+  /**
+   * Type-check the code against the tools' declarations before running it
+   * (default true), so a call that can't work fails before any tool runs.
+   */
+  typeCheck?: boolean;
+  /**
+   * How the model learns the tools' signatures:
+   * - `auto` (default) — `inline` while their declarations are short, else `search`
+   * - `inline` — every declaration is in the `execute_code` description
+   * - `search` — the description only names the tools; the model looks up the
+   *   declarations it needs with the `search_tools` tool, so the prompt stays
+   *   small however many MCP tools there are
+   */
+  toolDiscovery?: "auto" | "inline" | "search";
+}
+
 export interface McpConfig {
   /**
    * MCP servers exposed to the agent as server-side tools. Object
@@ -218,6 +245,7 @@ export interface AgentConfig {
   systemPrompt?: string;
   languageModel?: LanguageModelConfig;
   execution?: AgentExecutionConfig;
+  codeMode?: CodeModeConfig;
   mcp?: McpConfig;
   /**
    * Where the agent logs. Defaults to the console with `debug` off. `debug`

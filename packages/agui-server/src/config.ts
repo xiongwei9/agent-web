@@ -4,6 +4,7 @@ import {
   createFileMcpOAuthStore,
   LANGUAGE_MODEL_PROVIDERS,
   type AgentConfig,
+  type CodeModeConfig,
   type LanguageModelProvider,
   type McpConfig,
   type McpOAuthConfig,
@@ -58,6 +59,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       },
       execution: {
         maxToolIterations: readOptionalPositiveInteger(env.AGENT_MAX_TOOL_ITERATIONS),
+      },
+      codeMode: {
+        enabled: readBoolean(env.AGENT_CODE_MODE, "AGENT_CODE_MODE"),
+        timeoutMs: readOptionalPositiveInteger(env.AGENT_CODE_MODE_TIMEOUT_MS),
+        toolDiscovery: readToolDiscovery(env.AGENT_CODE_MODE_TOOL_DISCOVERY),
       },
       mcp: readMcpConfig(env.MCP_SERVERS, {
         redirectUrl: readMcpOAuthRedirectUrl(env, port),
@@ -234,6 +240,44 @@ function readMcpTransport(value: Record<string, unknown>): "stdio" | "http" | "s
 
   throw new Error(
     'Invalid MCP server config: expected either "command" for stdio or "url" for HTTP/SSE.',
+  );
+}
+
+const TRUE_VALUES = ["1", "true", "on", "yes"];
+const FALSE_VALUES = ["0", "false", "off", "no"];
+
+/** An on/off switch; unset means off. Anything unrecognized fails startup. */
+function readBoolean(value: string | undefined, name: string): boolean {
+  const normalized = emptyToUndefined(value)?.trim().toLowerCase();
+  if (normalized === undefined || FALSE_VALUES.includes(normalized)) {
+    return false;
+  }
+  if (TRUE_VALUES.includes(normalized)) {
+    return true;
+  }
+  throw new Error(
+    `Invalid ${name} "${value}". Supported values: ${[...TRUE_VALUES, ...FALSE_VALUES].join(", ")}`,
+  );
+}
+
+/**
+ * Code mode's tool discovery: on → the model looks tools up with
+ * `search_tools`; off → every declaration is inlined; unset or `auto` →
+ * decided by how long the declarations are.
+ */
+function readToolDiscovery(value: string | undefined): CodeModeConfig["toolDiscovery"] {
+  const normalized = emptyToUndefined(value)?.trim().toLowerCase();
+  if (normalized === undefined || normalized === "auto") {
+    return "auto";
+  }
+  if (TRUE_VALUES.includes(normalized)) {
+    return "search";
+  }
+  if (FALSE_VALUES.includes(normalized)) {
+    return "inline";
+  }
+  throw new Error(
+    `Invalid AGENT_CODE_MODE_TOOL_DISCOVERY "${value}". Supported values: auto, ${[...TRUE_VALUES, ...FALSE_VALUES].join(", ")}`,
   );
 }
 

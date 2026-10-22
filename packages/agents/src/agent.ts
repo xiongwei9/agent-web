@@ -6,6 +6,7 @@ import { Observable } from "rxjs";
 import type { AgentCapability } from "./capability.ts";
 import { a2uiCapability } from "./client-tools/a2ui.ts";
 import { hitlCapability } from "./client-tools/hitl.ts";
+import { withCodeMode } from "./code-mode/toolset.ts";
 import { CompactionCache, resolveCompactionOptions } from "./loop/compaction.ts";
 import { runAgentLoop } from "./loop/loop.ts";
 import { mcpCapability } from "./mcp/capability.ts";
@@ -33,7 +34,8 @@ const DEFAULT_SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url)
  * {@link AgentCapability}): local builtins, Agent Skills (Claude Code–style
  * progressive disclosure), MCP server tools, A2UI surfaces, and the
  * Human-in-the-Loop prompts. The loop also offers the client tools a request
- * declares in `RunAgentInput.tools`.
+ * declares in `RunAgentInput.tools`. With `config.codeMode` enabled, the server
+ * tools are offered as one `execute_code` tool instead (see {@link withCodeMode}).
  *
  * `mcp` exposes the MCP servers' connection state and OAuth flow to the app.
  * Both are per user: a run's `context.userId` picks whose MCP connections and
@@ -65,6 +67,11 @@ export function createAgent(config: AgentConfig = {}): Agent {
   ];
   const capabilitiesFor = (userId: string | undefined): AgentCapability[] =>
     mcp ? [...shared, mcpCapability(mcp.forUser(userId))] : shared;
+  const codeMode = config.codeMode?.enabled ? config.codeMode : undefined;
+  const toolsFor = async (userId: string | undefined) => {
+    const tools = await resolveRunTools(capabilitiesFor(userId));
+    return codeMode ? withCodeMode(tools, codeMode) : tools;
+  };
 
   const run = (input: Parameters<Agent["run"]>[0], context?: RunContext): Observable<BaseEvent> => {
     // Capabilities resolve per run (MCP connects on first use); fold that async
@@ -74,7 +81,7 @@ export function createAgent(config: AgentConfig = {}): Agent {
       let inner: { unsubscribe: () => void } | undefined;
       let cancelled = false;
 
-      resolveRunTools(capabilitiesFor(context?.userId)).then(
+      toolsFor(context?.userId).then(
         (tools) => {
           if (cancelled) {
             return;

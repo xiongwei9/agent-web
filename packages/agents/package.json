@@ -28,15 +28,17 @@
     "@ai-sdk/anthropic": "^2.0.79",
     "@ai-sdk/google": "^2.0.74",
     "@ai-sdk/openai": "^3.0.66",
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "quickjs-emscripten-core": "0.32.0",
     "rxjs": "7.8.1",
     "tiktoken": "^1.0.22",
+    "typescript": "^5.9.3",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@ai-chat/mcp-server-demo": "workspace:*",
-    "@types/node": "^24.0.0",
-    "typescript": "^5.8.2"
+    "@types/node": "^24.0.0"
   }
 }

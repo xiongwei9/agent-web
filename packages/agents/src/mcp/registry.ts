@@ -14,11 +14,17 @@ import type {
 import { consoleLogger } from "../shared/logger.ts";
 import { McpOAuthClientProvider } from "./oauth/provider.ts";
 import { MemoryMcpOAuthStore } from "./oauth/store.ts";
-import { describeMcpTool, formatMcpToolResult, type McpTool } from "./results.ts";
+import {
+  describeMcpTool,
+  formatMcpToolResult,
+  mcpToolResultValue,
+  type McpTool,
+  type McpToolResult,
+} from "./results.ts";
 import { uniqueToolName } from "./tool-names.ts";
 import { connectClient, isStdioServerConfig, listAllTools, toRequestOptions } from "./transport.ts";
 import { isRecord, normalizeToolParameters } from "../shared/utils.ts";
-import type { ServerTool } from "../tools/types.ts";
+import type { ServerTool, ToolExecutionContext } from "../tools/types.ts";
 
 const DEFAULT_RETRY_DELAY_MS = 5_000;
 
@@ -237,34 +243,43 @@ export class McpToolRegistry implements McpConnections {
   }
 
   private toServerTool(entry: McpServerEntry, mcpTool: McpTool, toolName: string): ServerTool {
+    const call = async (
+      args: Record<string, unknown>,
+      context: ToolExecutionContext | undefined,
+    ): Promise<McpToolResult> => {
+      // Don't reconnect while waiting: the 401 would start a new
+      // authorization and invalidate the URL the user may be holding.
+      if (entry.status === "needs_auth") {
+        throw new Error(this.authorizationRequiredMessage(entry));
+      }
+      try {
+        const client = await this.getClient(entry);
+        return await client.callTool(
+          { name: mcpTool.name, arguments: isRecord(args) ? args : {} },
+          undefined,
+          // The SDK sends `notifications/cancelled` to the server on abort.
+          { ...toRequestOptions(entry.config), signal: context?.signal },
+        );
+      } catch (error) {
+        if (context?.signal.aborted) {
+          throw error; // our own cancel: the session is fine
+        }
+        if (this.handleCallError(entry, error)) {
+          throw new Error(this.authorizationRequiredMessage(entry));
+        }
+        throw error;
+      }
+    };
+
     return {
       name: toolName,
       description: describeMcpTool(entry.id, mcpTool),
       parameters: normalizeToolParameters(mcpTool.inputSchema),
-      execute: async (args, context) => {
-        // Don't reconnect while waiting: the 401 would start a new
-        // authorization and invalidate the URL the user may be holding.
-        if (entry.status === "needs_auth") {
-          throw new Error(this.authorizationRequiredMessage(entry));
-        }
-        try {
-          const client = await this.getClient(entry);
-          const result = await client.callTool(
-            { name: mcpTool.name, arguments: isRecord(args) ? args : {} },
-            undefined,
-            // The SDK sends `notifications/cancelled` to the server on abort.
-            { ...toRequestOptions(entry.config), signal: context?.signal },
-          );
-          return formatMcpToolResult(result);
-        } catch (error) {
-          if (context?.signal.aborted) {
-            throw error; // our own cancel: the session is fine
-          }
-          if (this.handleCallError(entry, error)) {
-            throw new Error(this.authorizationRequiredMessage(entry));
-          }
-          throw error;
-        }
+      execute: async (args, context) => formatMcpToolResult(await call(args, context)),
+      code: {
+        outputSchema: mcpTool.outputSchema,
+        execute: async (args, context) =>
+          mcpToolResultValue(await call(args, context), mcpTool.outputSchema !== undefined),
       },
     };
   }

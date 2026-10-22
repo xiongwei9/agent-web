@@ -7,6 +7,7 @@ export type {
   AgentExecutionConfig,
   AgentLogger,
   AgentRunner,
+  CodeModeConfig,
   ContextCompactionConfig,
   LanguageModelConfig,
   LanguageModelProvider,
