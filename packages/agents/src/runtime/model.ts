@@ -1,9 +1,9 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { MastraModelConfig } from "@mastra/core/llm";
 
 import type { LanguageModelConfig, LanguageModelProvider, OpenAIModelApi } from "../types.ts";
+import type { LanguageModel } from "./types.ts";
 
 const DEFAULT_MODEL_BY_PROVIDER: Record<LanguageModelProvider, string> = {
   openai: "gpt-4.1-mini",
@@ -21,54 +21,40 @@ export interface ResolvedLanguageModelConfig {
   provider: LanguageModelProvider;
 }
 
-interface CreatedLanguageModel {
-  config: ResolvedLanguageModelConfig;
-  model: MastraModelConfig;
+/**
+ * Creates the raw `@ai-sdk/*` model. The loop only uses its `doStream`, which
+ * the minimal {@link LanguageModel} interface captures (see `types.ts` for why
+ * we don't import the SDK's own type).
+ */
+export function createLanguageModel(config: ResolvedLanguageModelConfig): LanguageModel {
+  return createSdkModel(config) as unknown as LanguageModel;
 }
 
-export function createLanguageModel(config: LanguageModelConfig): CreatedLanguageModel {
-  const resolved = resolveLanguageModelConfig(config);
-
-  switch (resolved.provider) {
+function createSdkModel(config: ResolvedLanguageModelConfig): unknown {
+  switch (config.provider) {
     case "openai":
-      return {
-        config: resolved,
-        model: createOpenAIModel(resolved, resolved.api ?? "responses"),
-      };
+      return createOpenAIModel(config, config.api ?? "responses");
 
     case "openai-compatible":
-      if (!resolved.baseURL) {
+      if (!config.baseURL) {
         throw new Error("MODEL_BASE_URL is required for openai-compatible.");
       }
-      return {
-        config: resolved,
-        model: createOpenAIModel(resolved, resolved.api ?? "chat"),
-      };
+      return createOpenAIModel(config, config.api ?? "chat");
 
-    case "anthropic": {
-      const anthropic = createAnthropic({
-        apiKey: resolved.apiKey,
-        baseURL: resolved.baseURL,
-        headers: resolved.headers,
-      });
-      return { config: resolved, model: anthropic.chat(resolved.model) };
-    }
+    case "anthropic":
+      return createAnthropic({
+        apiKey: config.apiKey,
+        baseURL: config.baseURL,
+        headers: config.headers,
+      }).chat(config.model);
 
-    case "google": {
-      const google = createGoogleGenerativeAI({
-        apiKey: resolved.apiKey,
-        baseURL: resolved.baseURL,
-        headers: resolved.headers,
-      });
-      return { config: resolved, model: google.chat(resolved.model) };
-    }
+    case "google":
+      return createGoogleGenerativeAI({
+        apiKey: config.apiKey,
+        baseURL: config.baseURL,
+        headers: config.headers,
+      }).chat(config.model);
   }
-}
-
-export function isLanguageModelConfigured(
-  config: LanguageModelConfig | undefined,
-): config is LanguageModelConfig & { apiKey: string } {
-  return Boolean(config?.apiKey);
 }
 
 export function resolveLanguageModelConfig(
@@ -98,10 +84,7 @@ function inferLanguageModelProvider(config: LanguageModelConfig): LanguageModelP
   return "openai";
 }
 
-function createOpenAIModel(
-  config: ResolvedLanguageModelConfig,
-  api: OpenAIModelApi,
-): MastraModelConfig {
+function createOpenAIModel(config: ResolvedLanguageModelConfig, api: OpenAIModelApi): unknown {
   const openai = createOpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,

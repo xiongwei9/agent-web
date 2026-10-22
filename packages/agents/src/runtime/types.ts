@@ -1,10 +1,9 @@
 /**
- * Minimal, framework-free view of the model + tool contracts the native agent
- * loop depends on.
+ * Minimal, framework-free view of the model + tool contracts the agent loop
+ * depends on.
  *
- * The Mastra provider hands models to Mastra's `Agent`, which owns the agentic
- * loop. The native provider instead drives the model directly, so it needs the
- * low-level streaming surface of the underlying `@ai-sdk/*` model. Rather than
+ * The loop drives the model directly, so it needs the low-level streaming
+ * surface of the underlying `@ai-sdk/*` model. Rather than
  * import that surface from `@ai-sdk/provider` — whose major version differs per
  * model package (Anthropic/Google pin v2, OpenAI v3) — we declare the
  * structural subset we actually touch here. The v2 and v3 specs are identical
@@ -12,8 +11,8 @@
  * stay decoupled from their transitive versions.
  */
 
-/** A server-side tool the loop executes itself (local builtins + MCP). */
-export interface NativeTool {
+/** A server-side tool the loop executes itself (local builtins, skills, MCP). */
+export interface ServerTool {
   name: string;
   description: string;
   /** JSON Schema (draft-07) describing the tool's arguments. */
@@ -112,6 +111,6 @@ export type ModelStreamPart =
   | { type: "tool-call"; toolCallId: string; toolName: string; input: string }
   | { type: "error"; error: unknown };
 
-export interface NativeLanguageModel {
+export interface LanguageModel {
   doStream: (options: ModelCallOptions) => PromiseLike<{ stream: ReadableStream<ModelStreamPart> }>;
 }

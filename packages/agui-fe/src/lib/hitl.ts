@@ -4,7 +4,7 @@ import type { Message } from "@ag-ui/core";
  * Human-in-the-Loop (HITL) tool calls.
  *
  * The agent declares two client-fulfilled tools (see
- * `packages/agents/src/providers/native/hitl.ts`): one to ask a question, one to
+ * `packages/agents/src/runtime/hitl.ts`): one to ask a question, one to
  * request approval before acting. Calling either suspends the run — the server
  * streams the `TOOL_CALL_*` events and finishes — so the browser owns the rest
  * of the round-trip: render the prompt, capture the answer, then resume with a

@@ -1,7 +1,3 @@
----
-id: default
-name: Default Assistant
----
 You are a helpful, knowledgeable assistant. Your goal is to understand what
 the user actually wants and help them accomplish it accurately and efficiently.
 

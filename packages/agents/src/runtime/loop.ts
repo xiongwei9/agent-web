@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { EventType, type BaseEvent, type Context, type Message, type Tool } from "@ag-ui/core";
 import { Observable, type Subscriber } from "rxjs";
 
-import { aguiEvent } from "../../events.ts";
+import { aguiEvent } from "../events.ts";
 import { buildModelToolDefs, builtinFrontendTools } from "./tools.ts";
 import { buildPrompt } from "./prompt.ts";
 import {
@@ -15,8 +15,8 @@ import type {
   ModelAssistantContentPart,
   ModelCallOptions,
   ModelMessage,
-  NativeLanguageModel,
-  NativeTool,
+  LanguageModel,
+  ServerTool,
 } from "./types.ts";
 
 const DEFAULT_MAX_TOOL_ITERATIONS = 16;
@@ -28,8 +28,8 @@ export interface RunOptions {
   clientTools: Tool[];
   context: Context[];
   persona: string | undefined;
-  model: NativeLanguageModel;
-  serverTools: Map<string, NativeTool>;
+  model: LanguageModel;
+  serverTools: Map<string, ServerTool>;
   maxToolIterations?: number;
   temperature?: number;
   /** Context compaction settings; merged onto defaults. Omit to use defaults. */
@@ -51,8 +51,7 @@ interface StreamTurn {
 /**
  * Runs the self-built agent loop and emits an AG-UI event stream.
  *
- * Unlike the Mastra provider — which delegates the agentic loop to Mastra's
- * `Agent` and adapts its output — this owns the loop end to end:
+ * No agent framework is involved — this owns the loop end to end:
  *
  *   RUN_STARTED
  *   repeat up to `maxToolIterations`:
@@ -68,7 +67,7 @@ interface StreamTurn {
  * The returned Observable aborts the in-flight model request when unsubscribed
  * (e.g. the HTTP client disconnects).
  */
-export function runNativeAgent(options: RunOptions): Observable<BaseEvent> {
+export function runAgentLoop(options: RunOptions): Observable<BaseEvent> {
   return new Observable<BaseEvent>((subscriber) => {
     const abortController = new AbortController();
     void drive(subscriber, options, abortController.signal).then(
@@ -124,7 +123,7 @@ async function drive(
     }
     if (compactedPrompt !== prompt) {
       console.log(
-        `[native-agent] ⊙ compacted prompt (runId=${runId}, iteration=${iteration}): ` +
+        `[agent] ⊙ compacted prompt (runId=${runId}, iteration=${iteration}): ` +
           `${prompt.length} → ${compactedPrompt.length} messages`,
       );
       prompt = compactedPrompt;
@@ -139,7 +138,7 @@ async function drive(
     };
 
     console.log(
-      `[native-agent] → LLM request (runId=${runId}, iteration=${iteration})\n` +
+      `[agent] → LLM request (runId=${runId}, iteration=${iteration})\n` +
         JSON.stringify(callOptions.prompt, null, 2),
     );
 
@@ -154,7 +153,7 @@ async function drive(
     }
 
     console.log(
-      `[native-agent] ← LLM response (runId=${runId}, iteration=${iteration})\n` +
+      `[agent] ← LLM response (runId=${runId}, iteration=${iteration})\n` +
         JSON.stringify(turn.assistantContent, null, 2),
     );
 
@@ -246,9 +245,9 @@ async function drive(
  * call regardless of which parts arrive.
  */
 async function streamTurn(
-  model: NativeLanguageModel,
+  model: LanguageModel,
   callOptions: ModelCallOptions,
-  serverTools: Map<string, NativeTool>,
+  serverTools: Map<string, ServerTool>,
   subscriber: Subscriber<BaseEvent>,
 ): Promise<StreamTurn> {
   const { stream } = await model.doStream(callOptions);
@@ -419,7 +418,7 @@ async function streamTurn(
 }
 
 async function executeServerTool(
-  serverTools: Map<string, NativeTool>,
+  serverTools: Map<string, ServerTool>,
   call: CollectedToolCall,
 ): Promise<string> {
   const tool = serverTools.get(call.toolName);

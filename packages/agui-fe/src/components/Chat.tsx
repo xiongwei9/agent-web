@@ -4,13 +4,9 @@ import { useChat } from "../hooks/useChat";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 
-interface ChatProps {
-  agentId: string;
-}
-
-export function Chat({ agentId }: ChatProps) {
+export function Chat() {
   const { messages, status, error, send, submitA2uiAction, respondToToolCall, stop, reset } =
-    useChat({ agentId });
+    useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Keep the latest message in view as the stream grows.

@@ -8,8 +8,8 @@ import {
   readSkillBody,
   resolveWithinSkill,
   type SkillSpec,
-} from "../../skills/index.ts";
-import type { NativeTool } from "./types.ts";
+} from "../skills/index.ts";
+import type { ServerTool } from "./types.ts";
 
 const SCRIPT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_CHARS = 100_000;
@@ -65,7 +65,7 @@ export class SkillsToolset {
    * marked `hidden`: skill loading / file reads / script runs are internal
    * plumbing, so the loop executes them but emits no AG-UI tool-call events.
    */
-  tools(): NativeTool[] {
+  tools(): ServerTool[] {
     if (this.skills.size === 0) {
       return [];
     }
@@ -75,7 +75,7 @@ export class SkillsToolset {
     }));
   }
 
-  private skillTool(): NativeTool {
+  private skillTool(): ServerTool {
     return {
       name: "Skill",
       description:
@@ -104,7 +104,7 @@ export class SkillsToolset {
     };
   }
 
-  private readFileTool(): NativeTool {
+  private readFileTool(): ServerTool {
     return {
       name: "read_skill_file",
       description:
@@ -130,7 +130,7 @@ export class SkillsToolset {
     };
   }
 
-  private runScriptTool(): NativeTool {
+  private runScriptTool(): ServerTool {
     return {
       name: "run_skill_script",
       description:

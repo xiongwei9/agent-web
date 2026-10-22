@@ -1,13 +1,13 @@
-import type { McpConfig } from "../../types.ts";
-import { isRecord, localAgentTools, normalizeToolParameters } from "../shared.ts";
+import type { McpConfig } from "../types.ts";
+import { isRecord, normalizeToolParameters } from "./utils.ts";
 import { a2uiFrontendTool } from "./a2ui.ts";
 import { hitlFrontendTools } from "./hitl.ts";
 import { createMcpToolRegistry, type McpToolRegistry } from "./mcp.ts";
 import { SkillsToolset } from "./skills.ts";
-import type { FrontendTool, ModelFunctionTool, NativeTool } from "./types.ts";
+import type { FrontendTool, ModelFunctionTool, ServerTool } from "./types.ts";
 
 /**
- * Owns the tools the native agent executes server-side: the local builtins
+ * Owns the tools the agent executes server-side: the local builtins
  * (e.g. `get_server_time`), the Agent Skills tools (`Skill` and friends), and
  * any MCP server tools. The set is resolved once per run (MCP tools load
  * lazily) and exposed both as a name→tool map for execution and as model-facing
@@ -18,7 +18,7 @@ import type { FrontendTool, ModelFunctionTool, NativeTool } from "./types.ts";
  * to the model too, but stops the run when one is called so the client can
  * fulfill it. See {@link buildModelToolDefs}.
  */
-export class NativeToolset {
+export class Toolset {
   private readonly mcp: McpToolRegistry | undefined;
   private readonly skills = new SkillsToolset();
 
@@ -32,15 +32,10 @@ export class NativeToolset {
   }
 
   /** All server-side tools by name (local builtins, skills, then MCP). */
-  async resolve(): Promise<Map<string, NativeTool>> {
-    const tools = new Map<string, NativeTool>();
-    for (const local of localAgentTools.values()) {
-      tools.set(local.name, {
-        name: local.name,
-        description: local.description,
-        parameters: normalizeToolParameters(local.parameters),
-        execute: (args) => local.execute(args),
-      });
+  async resolve(): Promise<Map<string, ServerTool>> {
+    const tools = new Map<string, ServerTool>();
+    for (const builtin of BUILTIN_TOOLS) {
+      tools.set(builtin.name, builtin);
     }
 
     for (const skillTool of this.skills.tools()) {
@@ -56,6 +51,23 @@ export class NativeToolset {
     return tools;
   }
 }
+
+const BUILTIN_TOOLS: ServerTool[] = [
+  {
+    name: "get_server_time",
+    description: "Get the server's current date and time.",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+    execute: () =>
+      JSON.stringify({
+        iso: new Date().toISOString(),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+  },
+];
 
 /**
  * The tools the server declares but the client fulfills: the A2UI render tool
@@ -76,7 +88,7 @@ export function builtinFrontendTools(): Map<string, FrontendTool> {
 }
 
 /** Converts a server-side tool into a model function declaration. */
-export function toModelToolDef(tool: NativeTool): ModelFunctionTool {
+export function toModelToolDef(tool: ServerTool): ModelFunctionTool {
   return {
     type: "function",
     name: tool.name,
@@ -94,7 +106,7 @@ export function toModelToolDef(tool: NativeTool): ModelFunctionTool {
  * execute, and frontend defs never overwrite a server or client tool.
  */
 export function buildModelToolDefs(
-  serverTools: Map<string, NativeTool>,
+  serverTools: Map<string, ServerTool>,
   clientTools: { name: string; description?: string; parameters?: unknown }[],
   frontendToolDefs: ModelFunctionTool[] = [],
 ): ModelFunctionTool[] {

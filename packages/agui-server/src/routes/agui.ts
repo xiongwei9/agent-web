@@ -1,11 +1,5 @@
 import { EventType, RunAgentInputSchema, type AGUIEvent, type RunAgentInput } from "@ag-ui/core";
-import {
-  aguiEvent,
-  createAgentRunner,
-  type AgentConfig,
-  type AgentRunner,
-  type AgentRunnerOptions,
-} from "@ai-chat/agents";
+import { aguiEvent, createAgentRunner, type AgentConfig, type AgentRunner } from "@ai-chat/agents";
 import { EventEncoder } from "@ag-ui/encoder";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
@@ -19,19 +13,11 @@ const streamResponseSchema = z
   .string()
   .describe("AG-UI event stream. Each SSE data frame contains one AG-UI BaseEvent JSON payload.");
 
-const RESOURCE_ID_HEADER = "x-resource-id";
-const AGENT_ID_HEADER = "x-agent-id";
-
-const aguiHeadersSchema = z.object({
-  [RESOURCE_ID_HEADER]: z.string().min(1).optional(),
-  [AGENT_ID_HEADER]: z.string().min(1).optional(),
-});
-
 export const aguiRoutes: FastifyPluginAsyncZod<AguiRoutesOptions> = async (
   app,
   { agentConfig },
 ) => {
-  const runAgent = createAgentRunner({ config: agentConfig });
+  const runAgent = createAgentRunner(agentConfig);
   const aguiRunOptions = {
     schema: {
       tags: ["ag-ui"],
@@ -39,7 +25,6 @@ export const aguiRoutes: FastifyPluginAsyncZod<AguiRoutesOptions> = async (
       description: "Accepts an AG-UI RunAgentInput payload and streams AG-UI BaseEvent objects.",
       consumes: ["application/json"],
       produces: ["text/event-stream"],
-      headers: aguiHeadersSchema,
       body: RunAgentInputSchema,
       response: {
         200: streamResponseSchema,
@@ -71,8 +56,7 @@ async function handleAguiRun(
     "x-accel-buffering": "no",
   });
 
-  const runnerOptions = buildRunnerOptions(request);
-  const events$ = runAgent(input, runnerOptions);
+  const events$ = runAgent(input);
 
   await new Promise<void>((resolve) => {
     let settled = false;
@@ -120,26 +104,4 @@ async function handleAguiRun(
   if (!reply.raw.destroyed) {
     reply.raw.end();
   }
-}
-
-function buildRunnerOptions(request: FastifyRequest<{ Body: RunAgentInput }>): AgentRunnerOptions {
-  const headerResourceId = readStringHeader(request, RESOURCE_ID_HEADER);
-  const headerAgentId = readStringHeader(request, AGENT_ID_HEADER);
-
-  return {
-    resourceId: headerResourceId,
-    agentId: headerAgentId,
-    requestContext: {
-      headers: request.headers,
-    },
-  };
-}
-
-function readStringHeader(
-  request: FastifyRequest<{ Body: RunAgentInput }>,
-  name: string,
-): string | undefined {
-  const value = request.headers[name];
-  const candidate = Array.isArray(value) ? value[0] : value;
-  return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
 }

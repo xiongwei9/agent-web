@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./types.ts";
 
 /**
- * Human-in-the-Loop (HITL) tools for the native agent loop.
+ * Human-in-the-Loop (HITL) tools for the agent loop.
  *
  * These are the agent's two ways to hand control back to the person it is
  * working for: {@link HITL_ASK_USER_TOOL_NAME} to collect an answer it cannot

@@ -1,11 +1,6 @@
 import { get_encoding, type Tiktoken } from "tiktoken";
 
-import type {
-  ModelCallOptions,
-  ModelMessage,
-  ModelStreamPart,
-  NativeLanguageModel,
-} from "./types.ts";
+import type { ModelCallOptions, ModelMessage, ModelStreamPart, LanguageModel } from "./types.ts";
 
 /**
  * Context compaction ("prompt optimization"): when the prompt grows too large —
@@ -123,7 +118,7 @@ function countTextTokens(text: string): number {
  */
 export async function compactPromptIfNeeded(
   prompt: ModelMessage[],
-  model: NativeLanguageModel,
+  model: LanguageModel,
   options: CompactionOptions,
   abortSignal: AbortSignal,
 ): Promise<ModelMessage[]> {
@@ -187,7 +182,7 @@ const SUMMARY_SYSTEM =
 /** Runs a single non-tool model call and returns the accumulated text. */
 async function summarize(
   messages: ModelMessage[],
-  model: NativeLanguageModel,
+  model: LanguageModel,
   abortSignal: AbortSignal,
 ): Promise<string | undefined> {
   const callOptions: ModelCallOptions = {

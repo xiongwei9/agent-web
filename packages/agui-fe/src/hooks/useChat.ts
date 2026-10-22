@@ -3,16 +3,13 @@ import type { Message } from "@ag-ui/core";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { formatA2uiUserMessage, type A2uiActionPayload } from "../lib/a2ui";
-import { AGUI_URL } from "../lib/agents";
 import { formatCancellation, findPendingHitlCalls } from "../lib/hitl";
 import { uid } from "../lib/ids";
 
-export type ChatStatus = "idle" | "running";
+/** Endpoint the browser POSTs AG-UI runs to. Defaults to the Vite dev proxy. */
+const AGUI_URL = import.meta.env.VITE_AGUI_URL ?? "/agui";
 
-export interface UseChatOptions {
-  /** Agent id forwarded to the server via the `x-agent-id` header. */
-  agentId: string;
-}
+export type ChatStatus = "idle" | "running";
 
 export interface UseChat {
   messages: Message[];
@@ -39,7 +36,7 @@ export interface UseChat {
  * `HttpAgent`; this hook mirrors that state into React and exposes
  * send/stop/reset controls.
  */
-export function useChat({ agentId }: UseChatOptions): UseChat {
+export function useChat(): UseChat {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -53,9 +50,7 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
   useEffect(() => {
     const agent = new HttpAgent({
       url: AGUI_URL,
-      agentId,
       threadId: uid("thread"),
-      headers: { "x-agent-id": agentId },
     });
     agentRef.current = agent;
     messagesRef.current = [];
@@ -86,7 +81,7 @@ export function useChat({ agentId }: UseChatOptions): UseChat {
       agent.abortRun();
       agentRef.current = null;
     };
-  }, [agentId, threadGeneration]);
+  }, [threadGeneration]);
 
   const send = useCallback((text: string) => {
     const agent = agentRef.current;

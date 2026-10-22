@@ -5,7 +5,6 @@ import {
   type McpConfig,
   type McpServerConfig,
   type OpenAIModelApi,
-  type AgentProviderSelection,
 } from "@ai-chat/agents";
 
 const DEFAULT_HOST = "0.0.0.0";
@@ -25,7 +24,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: readPort(env.PORT, DEFAULT_PORT),
     logLevel: emptyToUndefined(env.LOG_LEVEL) ?? DEFAULT_LOG_LEVEL,
     agent: {
-      provider: emptyToUndefined(env.AGENT_PROVIDER) as AgentProviderSelection | undefined,
+      systemPrompt: emptyToUndefined(env.SYSTEM_PROMPT),
       languageModel: {
         provider: readLanguageModelProvider(env.MODEL_PROVIDER),
         api: readLanguageModelApi(env.MODEL_API),
@@ -37,14 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       execution: {
         maxToolIterations: readOptionalPositiveInteger(env.AGENT_MAX_TOOL_ITERATIONS),
       },
-      mastra: {
-        storageUrl: emptyToUndefined(env.MASTRA_STORAGE_URL),
-      },
       mcp: readMcpConfig(env.MCP_SERVERS),
-      agno: {
-        baseURL: emptyToUndefined(env.AGNO_BASE_URL),
-        path: emptyToUndefined(env.AGNO_PATH),
-      },
     },
   };
 }

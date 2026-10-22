@@ -3,7 +3,7 @@ import { A2uiMessageListSchema } from "@a2ui/web_core/v0_9";
 import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./types.ts";
 
 /**
- * A2UI (Agent-to-UI) support for the native agent loop.
+ * A2UI (Agent-to-UI) support for the agent loop.
  *
  * A2UI is Google's declarative, JSON-based protocol for agent-driven generative
  * UI (https://a2ui.org). We carry it over AG-UI as a single client-rendered tool
@@ -11,7 +11,7 @@ import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./type
  * messages as its arguments, and the frontend renders them with the official
  * `@a2ui/lit` renderer.
  *
- * The tool is intentionally NOT registered as a server tool. The native loop
+ * The tool is intentionally NOT registered as a server tool. The loop
  * suspends a run whenever a client tool is called (see `loop.ts`), so calling
  * `render_a2ui` finishes the run and hands control to the client. When the user
  * interacts with the surface, the client resumes the run with a `user` message

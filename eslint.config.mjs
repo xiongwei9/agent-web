@@ -9,7 +9,7 @@ const nodeGlobals = {
 
 export default [
   {
-    ignores: ["**/dist/**", "**/node_modules/**", "coverage/**", "packages/agno-server/**"],
+    ignores: ["**/dist/**", "**/node_modules/**", "coverage/**"],
   },
   {
     files: ["**/*.{js,mjs,cjs}"],

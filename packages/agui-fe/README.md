@@ -34,8 +34,7 @@ the resulting `Message[]` and calls `send`/`stop`/`reset`.
 
 | File | Responsibility |
 | --- | --- |
-| [`hooks/useChat.ts`](src/hooks/useChat.ts) | Owns one `HttpAgent`, mirrors its `messages`/status/error into React state, exposes `send`/`stop`/`reset` plus the resume paths (`respondToToolCall`, `submitA2uiAction`). Recreates the agent (fresh thread) when the agent id changes or `reset()` is called. |
-| [`lib/agents.ts`](src/lib/agents.ts) | Agent catalog + the `/agui` endpoint URL. |
+| [`hooks/useChat.ts`](src/hooks/useChat.ts) | Owns one `HttpAgent`, mirrors its `messages`/status/error into React state, exposes `send`/`stop`/`reset` plus the resume paths (`respondToToolCall`, `submitA2uiAction`). Recreates the agent (fresh thread) when `reset()` is called. |
 | [`components/Chat.tsx`](src/components/Chat.tsx) | Wires the hook to the view: autoscroll, status bar, error banner. |
 | [`components/MessageList.tsx`](src/components/MessageList.tsx) | Renders user/assistant messages; attaches `tool` result messages to their originating tool call by `toolCallId`. |
 | [`components/MessageItem.tsx`](src/components/MessageItem.tsx) / [`ToolCall.tsx`](src/components/ToolCall.tsx) / [`Markdown.tsx`](src/components/Markdown.tsx) | A single message, a collapsible tool-call card, and Markdown rendering. |
@@ -93,31 +92,23 @@ Copy [`.env.example`](.env.example) to `.env` to override defaults:
 | `VITE_AGUI_URL` | `/agui` | URL the browser POSTs runs to. Use an absolute URL to skip the proxy and hit a remote server directly. |
 | `VITE_AGUI_TARGET` | `http://localhost:3000` | Dev-only: where the Vite proxy forwards `/agui`. |
 
-The agent dropdown sets the `x-agent-id` header (`default`, `OnboardingAgent`),
-matching the markdown agent definitions in [`@ai-chat/agents`](../agents/).
-
 ## Conversation identifiers
 
 AG-UI models a conversation with **two** ids, `threadId` and `runId`. There is
-no `sessionId` in the protocol — the closest concept, a cross-conversation user
-identity, is Mastra's `resourceId`. They nest like this:
+no `sessionId` in the protocol. They nest like this:
 
 ```
-resourceId   user / identity      — one user, many threads (optional)
-  └ threadId   one conversation    — many turns share it; carries history/context
-      └ runId    one turn          — a single POST /agui request-response
-          └ messageId / toolCallId  — ids inside a run (server prefixes with runId)
+threadId   one conversation    — many turns share it; carries history/context
+  └ runId    one turn          — a single POST /agui request-response
+      └ messageId / toolCallId  — ids inside a run (server prefixes with runId)
 ```
 
 | Id | Scope | Meaning | Who sets it | Where |
 | --- | --- | --- | --- | --- |
 | `threadId` | A conversation | Ties all turns of one chat together. Stays fixed for the life of an `HttpAgent`; a new one is minted on agent switch / **New chat**. | Client | [`useChat.ts`](src/hooks/useChat.ts) — `uid("thread")` |
 | `runId` | One turn | A single run. Every send (and every HITL resume) is a new `runId`. | Client (`HttpAgent` auto-generates one per `runAgent()`) | server uses it in `RUN_STARTED`/`RUN_FINISHED` and to namespace message ids |
-| `resourceId` | A user/identity | Cross-thread identity (e.g. user id) for shared memory. Sent via the `x-resource-id` header. | Caller | [`agui-server` route](../agui-server/src/routes/agui.ts); consumed by the Mastra/agno providers |
 
-This frontend currently sends only `threadId`/`runId` (via `HttpAgent`) and
-`x-agent-id`. It does **not** send `x-resource-id` — wire one up (e.g. a stable
-id persisted in `localStorage`) when you want per-user memory across threads.
+This frontend sends only `threadId`/`runId` (via `HttpAgent`).
 
 ## Scripts
 

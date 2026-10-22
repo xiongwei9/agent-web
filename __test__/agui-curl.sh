@@ -1,8 +1,6 @@
 curl -N -X POST http://localhost:3000/agui \
   -H 'content-type: application/json' \
   -H 'accept: text/event-stream' \
-  -H 'x-agent-id: OnboardingAgent' \
-  -H 'x-resource-id: user-123' \
   -d '{
     "threadId": "thread-001",
     "runId": "run-001",
@@ -18,8 +16,6 @@ curl -N -X POST http://localhost:3000/agui \
 curl -N -X POST http://localhost:3000/agui \
   -H 'content-type: application/json' \
   -H 'accept: text/event-stream' \
-  -H 'x-agent-id: OnboardingAgent' \
-  -H 'x-resource-id: user-123' \
   -d '{
     "threadId": "thread-001",
     "runId": "run-001",

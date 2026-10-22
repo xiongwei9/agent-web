@@ -8,17 +8,14 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { ToolsInput as MastraToolsInput } from "@mastra/core/agent";
-import type { PublicSchema } from "@mastra/core/schema";
-import { createTool as createMastraTool } from "@mastra/core/tools";
 
-import type { McpConfig, McpServerConfig, McpStdioServerConfig } from "../../types.ts";
-import { isRecord, normalizeToolParameters } from "../shared.ts";
+import type { McpConfig, McpServerConfig, McpStdioServerConfig } from "../types.ts";
+import { isRecord, normalizeToolParameters } from "./utils.ts";
+import type { ServerTool } from "./types.ts";
 
 const MCP_CLIENT_VERSION = "0.1.0";
 const MAX_TOOL_NAME_LENGTH = 64;
 
-type MastraToolSchema = PublicSchema<Record<string, unknown>>;
 type McpTool = Awaited<ReturnType<Client["listTools"]>>["tools"][number];
 type McpToolResult = Awaited<ReturnType<Client["callTool"]>>;
 
@@ -36,10 +33,18 @@ export function createMcpToolRegistry(config: McpConfig | undefined): McpToolReg
   return new McpToolRegistry(servers);
 }
 
+/**
+ * Connects to the configured MCP servers and exposes their tools as plain
+ * {@link ServerTool}s the agent loop can execute directly.
+ *
+ * Clients are connected lazily and cached for the process lifetime; the tool
+ * list is loaded once and memoized (with the promise cleared on failure so a
+ * later call can retry).
+ */
 export class McpToolRegistry {
   private readonly entries: McpServerEntry[];
   private readonly clients = new Map<string, Promise<Client>>();
-  private toolsPromise: Promise<MastraToolsInput> | undefined;
+  private toolsPromise: Promise<Map<string, ServerTool>> | undefined;
 
   constructor(servers: Record<string, McpServerConfig>) {
     this.entries = Object.entries(servers)
@@ -47,7 +52,7 @@ export class McpToolRegistry {
       .map(([id, config]) => ({ id, config }));
   }
 
-  async getTools(): Promise<MastraToolsInput> {
+  async getTools(): Promise<Map<string, ServerTool>> {
     this.toolsPromise ??= this.loadTools().catch((error) => {
       this.toolsPromise = undefined;
       throw error;
@@ -57,44 +62,51 @@ export class McpToolRegistry {
   }
 
   async getToolNames(): Promise<Set<string>> {
-    const tools = await this.getTools();
-    return new Set(Object.keys(tools));
+    return new Set((await this.getTools()).keys());
   }
 
-  private async loadTools(): Promise<MastraToolsInput> {
-    const tools: MastraToolsInput = {};
+  private async loadTools(): Promise<Map<string, ServerTool>> {
+    const tools = new Map<string, ServerTool>();
     const usedNames = new Set<string>();
 
+    // Load each server independently: a server that fails to connect or returns
+    // a malformed tool list (e.g. a non-spec-compliant MCP endpoint) is skipped
+    // with a warning rather than aborting the whole run. Its client promise is
+    // cleared so a later run can retry it.
     for (const entry of this.entries) {
-      const client = await this.getClient(entry);
-      for (const mcpTool of await listAllTools(client, entry.config)) {
-        const toolName = uniqueToolName(`${entry.id}__${mcpTool.name}`, usedNames);
-        tools[toolName] = this.toMastraTool(entry, mcpTool, toolName);
+      try {
+        const client = await this.getClient(entry);
+        for (const mcpTool of await listAllTools(client, entry.config)) {
+          const toolName = uniqueToolName(`${entry.id}__${mcpTool.name}`, usedNames);
+          tools.set(toolName, this.toServerTool(entry, mcpTool, toolName));
+        }
+      } catch (error) {
+        this.clients.delete(entry.id);
+        console.warn(
+          `[mcp] skipping server "${entry.id}": ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 
     return tools;
   }
 
-  private toMastraTool(entry: McpServerEntry, mcpTool: McpTool, toolName: string) {
-    return createMastraTool({
-      id: toolName,
+  private toServerTool(entry: McpServerEntry, mcpTool: McpTool, toolName: string): ServerTool {
+    return {
+      name: toolName,
       description: describeMcpTool(entry.id, mcpTool),
-      inputSchema: toMastraToolSchema(mcpTool.inputSchema),
+      parameters: normalizeToolParameters(mcpTool.inputSchema),
       execute: async (args) => {
         const client = await this.getClient(entry);
         const result = await client.callTool(
-          {
-            name: mcpTool.name,
-            arguments: isRecord(args) ? args : {},
-          },
+          { name: mcpTool.name, arguments: isRecord(args) ? args : {} },
           undefined,
           toRequestOptions(entry.config),
         );
 
         return formatMcpToolResult(result);
       },
-    });
+    };
   }
 
   private getClient(entry: McpServerEntry): Promise<Client> {
@@ -113,11 +125,7 @@ export class McpToolRegistry {
 }
 
 async function connectClient(entry: McpServerEntry): Promise<Client> {
-  const client = new Client({
-    name: `ai-chat-${entry.id}`,
-    version: MCP_CLIENT_VERSION,
-  });
-
+  const client = new Client({ name: `ai-chat-${entry.id}`, version: MCP_CLIENT_VERSION });
   await client.connect(createTransport(entry.config), toRequestOptions(entry.config));
   return client;
 }
@@ -227,14 +235,4 @@ function normalizeToolName(value: string): string {
 function withHashSuffix(value: string, hash: string): string {
   const suffix = `_${hash}`;
   return `${value.slice(0, MAX_TOOL_NAME_LENGTH - suffix.length)}${suffix}`;
-}
-
-function toMastraToolSchema(value: unknown): MastraToolSchema {
-  const schema = normalizeToolParameters(value);
-
-  return {
-    ...schema,
-    type: "object" as const,
-    properties: isRecord(schema.properties) ? schema.properties : {},
-  } as MastraToolSchema;
 }

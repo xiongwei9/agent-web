@@ -1,6 +1,6 @@
 import type { Context, Message } from "@ag-ui/core";
 
-import { contextToText } from "../shared.ts";
+import { contextToText } from "./utils.ts";
 import { A2UI_RENDER_TOOL_NAME } from "./a2ui.ts";
 import { HITL_ASK_USER_TOOL_NAME, HITL_REQUEST_APPROVAL_TOOL_NAME } from "./hitl.ts";
 import type { ModelAssistantContentPart, ModelMessage, ModelTextPart } from "./types.ts";
