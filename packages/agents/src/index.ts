@@ -1,6 +1,7 @@
 export { aguiEvent } from "./events.ts";
-export { createAgentRunner } from "./runtime/agent.ts";
+export { createAgent } from "./runtime/agent.ts";
 export type {
+  Agent,
   AgentConfig,
   AgentExecutionConfig,
   AgentRunner,
@@ -9,7 +10,11 @@ export type {
   LanguageModelProvider,
   McpBaseServerConfig,
   McpConfig,
+  McpConnections,
+  McpOAuthConfig,
   McpServerConfig,
+  McpServerInfo,
+  McpServerStatus,
   McpSseServerConfig,
   McpStdioServerConfig,
   McpStreamableHttpServerConfig,

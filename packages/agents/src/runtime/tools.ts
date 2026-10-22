@@ -19,7 +19,7 @@ import type { FrontendTool, ModelFunctionTool, ServerTool } from "./types.ts";
  * fulfill it. See {@link buildModelToolDefs}.
  */
 export class Toolset {
-  private readonly mcp: McpToolRegistry | undefined;
+  readonly mcp: McpToolRegistry | undefined;
   private readonly skills = new SkillsToolset();
 
   constructor(mcp: McpConfig | undefined) {
@@ -49,6 +49,11 @@ export class Toolset {
     }
 
     return tools;
+  }
+
+  /** Disconnects the MCP servers, if any. */
+  async close(): Promise<void> {
+    await this.mcp?.close();
   }
 }
 

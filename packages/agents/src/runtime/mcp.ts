@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import {
@@ -8,13 +9,24 @@ import {
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { McpError } from "@modelcontextprotocol/sdk/types.js";
 
-import type { McpConfig, McpServerConfig, McpStdioServerConfig } from "../types.ts";
+import type {
+  McpConfig,
+  McpConnections,
+  McpOAuthConfig,
+  McpServerConfig,
+  McpServerInfo,
+  McpServerStatus,
+  McpStdioServerConfig,
+} from "../types.ts";
+import { McpOAuthClientProvider } from "./mcp-oauth.ts";
 import { isRecord, normalizeToolParameters } from "./utils.ts";
 import type { ServerTool } from "./types.ts";
 
 const MCP_CLIENT_VERSION = "0.1.0";
 const MAX_TOOL_NAME_LENGTH = 64;
+const DEFAULT_RETRY_DELAY_MS = 5_000;
 
 type McpTool = Awaited<ReturnType<Client["listTools"]>>["tools"][number];
 type McpToolResult = Awaited<ReturnType<Client["callTool"]>>;
@@ -22,6 +34,22 @@ type McpToolResult = Awaited<ReturnType<Client["callTool"]>>;
 interface McpServerEntry {
   id: string;
   config: McpServerConfig;
+  /** OAuth client state; only for remote servers when OAuth is enabled. */
+  oauth: McpOAuthClientProvider | undefined;
+  client: Promise<Client> | undefined;
+  status: McpServerStatus;
+  tools: McpTool[];
+  error: string | undefined;
+  /** When a `failed` server may be tried again (ms since epoch). */
+  retryAt: number;
+  /** The in-flight connect + tool listing, shared by concurrent callers. */
+  loading: Promise<void> | undefined;
+}
+
+export interface McpToolRegistryOptions {
+  oauth?: McpOAuthConfig;
+  /** How long a server that failed to connect is left alone before retrying. */
+  retryDelayMs?: number;
 }
 
 export function createMcpToolRegistry(config: McpConfig | undefined): McpToolRegistry | undefined {
@@ -30,65 +58,148 @@ export function createMcpToolRegistry(config: McpConfig | undefined): McpToolReg
     return undefined;
   }
 
-  return new McpToolRegistry(servers);
+  return new McpToolRegistry(servers, { oauth: config.oauth });
 }
 
 /**
  * Connects to the configured MCP servers and exposes their tools as plain
  * {@link ServerTool}s the agent loop can execute directly.
  *
- * Clients are connected lazily and cached for the process lifetime; the tool
- * list is loaded once and memoized (with the promise cleared on failure so a
- * later call can retry).
+ * Each server is tracked independently: it connects lazily, its tool list is
+ * loaded once and cached while connected, and a server that fails is skipped
+ * (with a warning) rather than aborting the run, then retried after
+ * `retryDelayMs`. A server that needs OAuth waits in `needs_auth` until
+ * {@link finishAuth} completes the flow.
  */
-export class McpToolRegistry {
+export class McpToolRegistry implements McpConnections {
   private readonly entries: McpServerEntry[];
-  private readonly clients = new Map<string, Promise<Client>>();
-  private toolsPromise: Promise<Map<string, ServerTool>> | undefined;
+  private readonly retryDelayMs: number;
 
-  constructor(servers: Record<string, McpServerConfig>) {
+  constructor(servers: Record<string, McpServerConfig>, options: McpToolRegistryOptions = {}) {
+    this.retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     this.entries = Object.entries(servers)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([id, config]) => ({ id, config }));
+      .map(([id, config]) => ({
+        id,
+        config,
+        oauth:
+          options.oauth && !isStdioServerConfig(config)
+            ? new McpOAuthClientProvider(options.oauth)
+            : undefined,
+        client: undefined,
+        status: "pending",
+        tools: [],
+        error: undefined,
+        retryAt: 0,
+        loading: undefined,
+      }));
   }
 
   async getTools(): Promise<Map<string, ServerTool>> {
-    this.toolsPromise ??= this.loadTools().catch((error) => {
-      this.toolsPromise = undefined;
-      throw error;
-    });
+    await this.connect();
 
-    return this.toolsPromise;
+    const tools = new Map<string, ServerTool>();
+    const usedNames = new Set<string>();
+    for (const entry of this.entries) {
+      if (entry.status !== "connected") {
+        continue;
+      }
+      for (const mcpTool of entry.tools) {
+        const toolName = uniqueToolName(`${entry.id}__${mcpTool.name}`, usedNames);
+        tools.set(toolName, this.toServerTool(entry, mcpTool, toolName));
+      }
+    }
+
+    return tools;
   }
 
   async getToolNames(): Promise<Set<string>> {
     return new Set((await this.getTools()).keys());
   }
 
-  private async loadTools(): Promise<Map<string, ServerTool>> {
-    const tools = new Map<string, ServerTool>();
-    const usedNames = new Set<string>();
+  async connect(): Promise<void> {
+    await Promise.all(this.entries.map((entry) => this.load(entry)));
+  }
 
-    // Load each server independently: a server that fails to connect or returns
-    // a malformed tool list (e.g. a non-spec-compliant MCP endpoint) is skipped
-    // with a warning rather than aborting the whole run. Its client promise is
-    // cleared so a later run can retry it.
-    for (const entry of this.entries) {
-      try {
-        const client = await this.getClient(entry);
-        for (const mcpTool of await listAllTools(client, entry.config)) {
-          const toolName = uniqueToolName(`${entry.id}__${mcpTool.name}`, usedNames);
-          tools.set(toolName, this.toServerTool(entry, mcpTool, toolName));
-        }
-      } catch (error) {
-        this.clients.delete(entry.id);
-        console.warn(
-          `[mcp] skipping server "${entry.id}": ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
+  status(): McpServerInfo[] {
+    return this.entries.map(toServerInfo);
+  }
+
+  async finishAuth(state: string, code: string): Promise<McpServerInfo> {
+    const entry = state
+      ? this.entries.find((candidate) => candidate.oauth?.pendingState === state)
+      : undefined;
+    if (!entry?.oauth || isStdioServerConfig(entry.config)) {
+      throw new Error("Unknown or expired OAuth state");
     }
 
-    return tools;
+    const result = await auth(entry.oauth, {
+      serverUrl: entry.config.url,
+      authorizationCode: code,
+    });
+    if (result !== "AUTHORIZED") {
+      throw new Error(`MCP server "${entry.id}" did not authorize the client`);
+    }
+
+    entry.status = "pending";
+    await this.load(entry);
+    return toServerInfo(entry);
+  }
+
+  /**
+   * Closes every connected client (terminating stdio child processes) and
+   * resets every server to `pending`, so the next {@link getTools} reconnects.
+   * OAuth tokens are kept.
+   */
+  async close(): Promise<void> {
+    const clients = this.entries.flatMap((entry) => (entry.client ? [entry.client] : []));
+    for (const entry of this.entries) {
+      entry.client = undefined;
+      entry.status = "pending";
+      entry.tools = [];
+      entry.error = undefined;
+      entry.retryAt = 0;
+    }
+    await Promise.allSettled(clients.map(async (client) => (await client).close()));
+  }
+
+  private load(entry: McpServerEntry): Promise<void> {
+    if (entry.status === "connected" || entry.status === "needs_auth") {
+      return Promise.resolve();
+    }
+    if (entry.status === "failed" && Date.now() < entry.retryAt) {
+      return Promise.resolve();
+    }
+
+    entry.loading ??= this.loadServer(entry).finally(() => {
+      entry.loading = undefined;
+    });
+    return entry.loading;
+  }
+
+  private async loadServer(entry: McpServerEntry): Promise<void> {
+    try {
+      const client = await this.getClient(entry);
+      entry.tools = await listAllTools(client, entry.config);
+      entry.status = "connected";
+      entry.error = undefined;
+    } catch (error) {
+      this.dropClient(entry);
+      entry.tools = [];
+      if (error instanceof UnauthorizedError && entry.oauth?.authorizationUrl) {
+        entry.status = "needs_auth";
+        entry.error = undefined;
+        console.warn(
+          `[mcp] server "${entry.id}" needs authorization; open ${entry.oauth.authorizationUrl.href}`,
+        );
+        return;
+      }
+
+      entry.status = "failed";
+      entry.error = error instanceof Error ? error.message : String(error);
+      entry.retryAt = Date.now() + this.retryDelayMs;
+      console.warn(`[mcp] skipping server "${entry.id}": ${entry.error}`);
+    }
   }
 
   private toServerTool(entry: McpServerEntry, mcpTool: McpTool, toolName: string): ServerTool {
@@ -97,40 +208,73 @@ export class McpToolRegistry {
       description: describeMcpTool(entry.id, mcpTool),
       parameters: normalizeToolParameters(mcpTool.inputSchema),
       execute: async (args) => {
-        const client = await this.getClient(entry);
-        const result = await client.callTool(
-          { name: mcpTool.name, arguments: isRecord(args) ? args : {} },
-          undefined,
-          toRequestOptions(entry.config),
-        );
-
-        return formatMcpToolResult(result);
+        try {
+          const client = await this.getClient(entry);
+          const result = await client.callTool(
+            { name: mcpTool.name, arguments: isRecord(args) ? args : {} },
+            undefined,
+            toRequestOptions(entry.config),
+          );
+          return formatMcpToolResult(result);
+        } catch (error) {
+          this.handleCallError(entry, error);
+          throw error;
+        }
       },
     };
   }
 
-  private getClient(entry: McpServerEntry): Promise<Client> {
-    const existing = this.clients.get(entry.id);
-    if (existing) {
-      return existing;
+  /**
+   * A JSON-RPC error (tool failure, timeout) leaves the session usable. Anything
+   * else is a transport failure — e.g. the server restarted and forgot the
+   * session — so drop the client and let the next call reconnect. A rejected
+   * token parks the server in `needs_auth` until the user authorizes again.
+   */
+  private handleCallError(entry: McpServerEntry, error: unknown): void {
+    if (error instanceof McpError) {
+      return;
     }
+    this.dropClient(entry);
+    if (error instanceof UnauthorizedError && entry.oauth?.authorizationUrl) {
+      entry.status = "needs_auth";
+      entry.tools = [];
+    }
+  }
 
-    const clientPromise = connectClient(entry).catch((error) => {
-      this.clients.delete(entry.id);
+  private getClient(entry: McpServerEntry): Promise<Client> {
+    entry.client ??= connectClient(entry).catch((error) => {
+      entry.client = undefined;
       throw error;
     });
-    this.clients.set(entry.id, clientPromise);
-    return clientPromise;
+    return entry.client;
   }
+
+  private dropClient(entry: McpServerEntry): void {
+    const client = entry.client;
+    entry.client = undefined;
+    void client?.then((connected) => connected.close()).catch(() => {});
+  }
+}
+
+function toServerInfo(entry: McpServerEntry): McpServerInfo {
+  return {
+    id: entry.id,
+    status: entry.status,
+    toolCount: entry.status === "connected" ? entry.tools.length : 0,
+    ...(entry.status === "needs_auth" && entry.oauth?.authorizationUrl
+      ? { authorizationUrl: entry.oauth.authorizationUrl.href }
+      : {}),
+    ...(entry.error ? { error: entry.error } : {}),
+  };
 }
 
 async function connectClient(entry: McpServerEntry): Promise<Client> {
   const client = new Client({ name: `ai-chat-${entry.id}`, version: MCP_CLIENT_VERSION });
-  await client.connect(createTransport(entry.config), toRequestOptions(entry.config));
+  await client.connect(createTransport(entry), toRequestOptions(entry.config));
   return client;
 }
 
-function createTransport(config: McpServerConfig): Transport {
+function createTransport({ config, oauth }: McpServerEntry): Transport {
   if (isStdioServerConfig(config)) {
     return new StdioClientTransport({
       command: config.command,
@@ -143,10 +287,10 @@ function createTransport(config: McpServerConfig): Transport {
   const requestInit = config.headers ? { headers: config.headers } : undefined;
   const url = new URL(config.url);
   if (config.transport === "sse") {
-    return new SSEClientTransport(url, { requestInit });
+    return new SSEClientTransport(url, { requestInit, authProvider: oauth });
   }
 
-  return new StreamableHTTPClientTransport(url, { requestInit });
+  return new StreamableHTTPClientTransport(url, { requestInit, authProvider: oauth });
 }
 
 async function listAllTools(client: Client, config: McpServerConfig): Promise<McpTool[]> {

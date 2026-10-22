@@ -6,7 +6,7 @@ curl -N -X POST http://localhost:3000/agui \
     "runId": "run-001",
     "state": {},
     "messages": [
-      { "id": "m1", "role": "user", "content": "查询 Figma 设计里的这个图层内容，然后用语言描述下这是什么？ @https://www.figma.com/design/PXzB2B9urw4z6r2jeZhkSF/Cobo-Portal---Mobile-App?node-id=829-7204&m=dev" }
+      { "id": "m1", "role": "user", "content": "北京和上海今天天气怎么样？" }
     ],
     "tools": [],
     "context": []

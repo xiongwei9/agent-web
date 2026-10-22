@@ -1,6 +1,7 @@
 import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import { createAgent } from "@ai-chat/agents";
 import fastify, { type FastifyServerOptions } from "fastify";
 import {
   hasZodFastifySchemaValidationErrors,
@@ -14,6 +15,7 @@ import {
 import { aguiRoutes } from "./routes/agui.ts";
 import type { AppConfig } from "./config.ts";
 import { healthRoutes } from "./routes/health.ts";
+import { mcpRoutes } from "./routes/mcp.ts";
 
 export interface BuildAppOptions {
   config: AppConfig;
@@ -78,6 +80,7 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
       tags: [
         { name: "system", description: "Service diagnostics" },
         { name: "ag-ui", description: "AG-UI protocol endpoints" },
+        { name: "mcp", description: "MCP server status and OAuth" },
       ],
     },
     transform: jsonSchemaTransform,
@@ -91,9 +94,21 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
     },
   });
 
+  const agent = createAgent(config.agent);
+
   await app.register(healthRoutes);
-  await app.register(aguiRoutes, {
-    agentConfig: config.agent,
+  await app.register(aguiRoutes, { runAgent: agent.run });
+  await app.register(mcpRoutes, { mcp: agent.mcp });
+
+  // Connect the MCP servers up front, so one that needs OAuth logs its
+  // authorization URL (and shows up in `GET /mcp/servers`) right after startup
+  // instead of on the first chat run. Not awaited: a slow server mustn't hold
+  // up the HTTP listener.
+  app.addHook("onReady", async () => {
+    void agent.mcp?.connect();
+  });
+  app.addHook("onClose", async () => {
+    await agent.mcp?.close();
   });
 
   return app;

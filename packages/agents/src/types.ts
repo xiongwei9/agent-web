@@ -3,6 +3,45 @@ import type { Observable } from "rxjs";
 
 export type AgentRunner = (input: RunAgentInput) => Observable<BaseEvent>;
 
+export interface Agent {
+  run: AgentRunner;
+  /** MCP connection status and OAuth control; undefined when no MCP servers are configured. */
+  mcp: McpConnections | undefined;
+}
+
+/** What the app needs to surface MCP connection state and finish OAuth flows. */
+export interface McpConnections {
+  /**
+   * Connects every server that isn't connected yet (failed ones are retried
+   * after a short delay; ones waiting for authorization are left alone).
+   */
+  connect(): Promise<void>;
+  status(): McpServerInfo[];
+  /**
+   * Completes an authorization: exchanges the `code` from the OAuth redirect
+   * for tokens, then connects the server whose request carried `state`.
+   * Rejects when `state` matches no pending authorization.
+   */
+  finishAuth(state: string, code: string): Promise<McpServerInfo>;
+  close(): Promise<void>;
+}
+
+/**
+ * - `pending` — not connected yet; the next run or {@link McpConnections.connect} tries
+ * - `connected` — tools are available
+ * - `needs_auth` — waiting for the user to approve at `authorizationUrl`
+ * - `failed` — couldn't connect (see `error`); retried after a short delay
+ */
+export type McpServerStatus = "pending" | "connected" | "needs_auth" | "failed";
+
+export interface McpServerInfo {
+  id: string;
+  status: McpServerStatus;
+  toolCount: number;
+  authorizationUrl?: string;
+  error?: string;
+}
+
 export const LANGUAGE_MODEL_PROVIDERS = [
   "openai",
   "openai-compatible",
@@ -55,6 +94,19 @@ export interface McpConfig {
    * keys become the server namespace used in generated tool names.
    */
   servers?: Record<string, McpServerConfig>;
+  /**
+   * Enables OAuth for remote (HTTP / SSE) servers. A server that answers 401
+   * moves to `needs_auth` with an authorization URL; the app sends the user
+   * there and routes the redirect back to {@link McpConnections.finishAuth}.
+   */
+  oauth?: McpOAuthConfig;
+}
+
+export interface McpOAuthConfig {
+  /** The app's OAuth callback, e.g. `http://localhost:3000/mcp/oauth/callback`. */
+  redirectUrl: string;
+  /** `client_name` sent during dynamic client registration. */
+  clientName?: string;
 }
 
 export type McpServerConfig =
@@ -75,12 +127,14 @@ export interface McpStdioServerConfig extends McpBaseServerConfig {
   cwd?: string;
 }
 
+/** The preferred remote transport; a `url` without `transport` uses it. */
 export interface McpStreamableHttpServerConfig extends McpBaseServerConfig {
-  transport: "http";
+  transport?: "http";
   url: string;
   headers?: Record<string, string>;
 }
 
+/** Legacy HTTP+SSE transport, for servers that predate Streamable HTTP. */
 export interface McpSseServerConfig extends McpBaseServerConfig {
   transport: "sse";
   url: string;

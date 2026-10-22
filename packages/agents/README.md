@@ -5,10 +5,11 @@ loop that drives `@ai-sdk/*` models directly and emits AG-UI events itself.
 
 ## Layout
 
-- `src/runtime/` — the agent runtime. `agent.ts` exposes `createAgentRunner`;
+- `src/runtime/` — the agent runtime. `agent.ts` exposes `createAgent`;
   `loop.ts` is the agentic loop; `prompt.ts` maps AG-UI history onto the model
   prompt; `compaction.ts` summarizes old context; `tools.ts` / `mcp.ts` /
-  `skills.ts` provide server-side tools; `a2ui.ts` / `hitl.ts` declare
+  `skills.ts` provide server-side tools (`mcp-oauth.ts` holds the MCP OAuth
+  client state); `a2ui.ts` / `hitl.ts` declare
   client-fulfilled tools; `model.ts` builds the `@ai-sdk` model.
 - `src/system-prompt.md` — the default system prompt; edit it to change the
   agent's persona/instructions.
@@ -17,18 +18,47 @@ loop that drives `@ai-sdk/*` models directly and emits AG-UI events itself.
 ## Configuration
 
 This package does not read environment variables directly. Applications build
-an `AgentConfig` object and pass it to `createAgentRunner(config)`; it throws if
-`languageModel.apiKey` is missing.
+an `AgentConfig` object and pass it to `createAgent(config)`, which returns
+`{ run, mcp }` and throws if `languageModel.apiKey` is missing. `run` turns a
+`RunAgentInput` into an AG-UI event stream; `mcp` exposes the MCP servers'
+status and OAuth flow (undefined without MCP servers).
 
 `AgentConfig.languageModel.provider` supports `openai`, `openai-compatible`,
 `anthropic`, and `google` (see `src/runtime/model.ts`). `execution` tunes the
 loop (`maxToolIterations`, `contextCompaction`).
 
-MCP tools come from `AgentConfig.mcp.servers`. Supported transports are stdio,
-streamable HTTP, and SSE. Tool names are namespaced as `<serverId>__<toolName>`.
+MCP tools come from `AgentConfig.mcp.servers`. Streamable HTTP is the preferred
+transport and the default for a `url` without `transport`; stdio (`command`) and
+the legacy SSE transport (`transport: "sse"`) are still supported. Tool names
+are namespaced as `<serverId>__<toolName>`.
 
 `AgentConfig.systemPrompt` overrides `src/system-prompt.md`. Either way, the
 skills catalog and the A2UI / HITL guides are appended to it.
+
+## MCP connections and OAuth
+
+Each MCP server is tracked on its own (`mcp.status()`): `pending` until the
+first connect, then `connected`, `failed` (skipped, retried after a few
+seconds), or `needs_auth`. A server that drops its session or connection is
+reconnected on the next call.
+
+With `AgentConfig.mcp.oauth` set (`redirectUrl`, optional `clientName`), a
+remote server that answers 401 goes through the MCP authorization flow: the SDK
+discovers the authorization server, registers a client dynamically, and builds
+a PKCE authorization URL. A server-side agent can't open a browser, so the
+server waits in `needs_auth` with that `authorizationUrl` for the app to show.
+When the user approves, the authorization server redirects to `redirectUrl`;
+the app passes its `state` and `code` to `mcp.finishAuth(state, code)`, which
+exchanges them for tokens and connects. Tokens refresh automatically; if a
+refresh fails, the server returns to `needs_auth`. Tokens are kept in memory
+only, so a process restart means authorizing again.
+
+## Tests
+
+`pnpm --filter @ai-chat/agents test` runs `test/**/*.test.ts` with `node --test`.
+The MCP tests, OAuth included, run against the Streamable HTTP demo server in
+`packages/mcp-server-demo`. The agent-loop tests use a scripted fake model, so
+they need no API key.
 
 ## Human-in-the-Loop
 

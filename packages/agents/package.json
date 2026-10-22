@@ -19,7 +19,8 @@
     "copy:skills": "mkdir -p dist/skills && find src/skills -mindepth 1 -maxdepth 1 -type d -exec cp -R {} dist/skills/ ';'",
     "copy:assets": "npm run copy:prompt && npm run copy:skills",
     "build": "npm run clean && npm run compile && npm run copy:assets",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@a2ui/web_core": "^0.10.0",
@@ -27,13 +28,14 @@
     "@ai-sdk/anthropic": "^2.0.79",
     "@ai-sdk/google": "^2.0.74",
     "@ai-sdk/openai": "^3.0.66",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "rxjs": "7.8.1",
     "tiktoken": "^1.0.22",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@ai-chat/mcp-server-demo": "workspace:*",
     "@types/node": "^24.0.0",
     "typescript": "^5.8.2"
   }

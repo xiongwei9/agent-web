@@ -1,23 +1,19 @@
 import { EventType, RunAgentInputSchema, type AGUIEvent, type RunAgentInput } from "@ag-ui/core";
-import { aguiEvent, createAgentRunner, type AgentConfig, type AgentRunner } from "@ai-chat/agents";
+import { aguiEvent, type AgentRunner } from "@ai-chat/agents";
 import { EventEncoder } from "@ag-ui/encoder";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 
 interface AguiRoutesOptions {
-  agentConfig: AgentConfig;
+  runAgent: AgentRunner;
 }
 
 const streamResponseSchema = z
   .string()
   .describe("AG-UI event stream. Each SSE data frame contains one AG-UI BaseEvent JSON payload.");
 
-export const aguiRoutes: FastifyPluginAsyncZod<AguiRoutesOptions> = async (
-  app,
-  { agentConfig },
-) => {
-  const runAgent = createAgentRunner(agentConfig);
+export const aguiRoutes: FastifyPluginAsyncZod<AguiRoutesOptions> = async (app, { runAgent }) => {
   const aguiRunOptions = {
     schema: {
       tags: ["ag-ui"],

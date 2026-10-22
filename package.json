@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "pnpm run dev:server & pnpm run dev:fe",
+    "dev": "pnpm run dev:mcp & pnpm run dev:server & pnpm run dev:fe",
+    "dev:mcp": "pnpm --filter mcp-server-demo dev",
     "dev:server": "pnpm --filter agui-server dev",
     "dev:fe": "pnpm --filter agui-fe dev",
     "lint": "eslint .",
@@ -12,7 +13,7 @@
     "lint:staged": "pnpm lint:fix",
     "prepare": "husky",
     "typecheck": "pnpm -r --if-present typecheck",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "pnpm -r --if-present test"
   },
   "keywords": [],
   "author": "",

@@ -10,6 +10,8 @@ import {
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_LOG_LEVEL = "info";
 const DEFAULT_PORT = 3000;
+const MCP_OAUTH_CLIENT_NAME = "ai-chat";
+export const MCP_OAUTH_CALLBACK_PATH = "/mcp/oauth/callback";
 
 export interface AppConfig {
   agent: AgentConfig;
@@ -19,9 +21,10 @@ export interface AppConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const port = readPort(env.PORT, DEFAULT_PORT);
   return {
     host: emptyToUndefined(env.HOST) ?? DEFAULT_HOST,
-    port: readPort(env.PORT, DEFAULT_PORT),
+    port,
     logLevel: emptyToUndefined(env.LOG_LEVEL) ?? DEFAULT_LOG_LEVEL,
     agent: {
       systemPrompt: emptyToUndefined(env.SYSTEM_PROMPT),
@@ -36,7 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       execution: {
         maxToolIterations: readOptionalPositiveInteger(env.AGENT_MAX_TOOL_ITERATIONS),
       },
-      mcp: readMcpConfig(env.MCP_SERVERS),
+      mcp: readMcpConfig(env.MCP_SERVERS, readMcpOAuthRedirectUrl(env, port)),
     },
   };
 }
@@ -91,7 +94,23 @@ function readModelHeaders(value: string | undefined): Record<string, string> | u
   return parsed as Record<string, string>;
 }
 
-function readMcpConfig(value: string | undefined): McpConfig | undefined {
+/**
+ * Where MCP authorization servers send the user back (see `routes/mcp.ts`).
+ * Defaults to this server's own callback on localhost.
+ */
+function readMcpOAuthRedirectUrl(env: NodeJS.ProcessEnv, port: number): string {
+  const value = emptyToUndefined(env.MCP_OAUTH_REDIRECT_URL);
+  if (!value) {
+    return `http://localhost:${port}${MCP_OAUTH_CALLBACK_PATH}`;
+  }
+  try {
+    return new URL(value).href;
+  } catch {
+    throw new Error(`Invalid MCP_OAUTH_REDIRECT_URL: "${value}" is not an absolute URL.`);
+  }
+}
+
+function readMcpConfig(value: string | undefined, oauthRedirectUrl: string): McpConfig | undefined {
   const raw = emptyToUndefined(value);
   if (!raw) {
     return undefined;
@@ -125,7 +144,7 @@ function readMcpConfig(value: string | undefined): McpConfig | undefined {
     servers[serverId] = readMcpServerConfig(serverId, serverValue);
   }
 
-  return { servers };
+  return { servers, oauth: { redirectUrl: oauthRedirectUrl, clientName: MCP_OAUTH_CLIENT_NAME } };
 }
 
 function readMcpServerConfig(serverId: string, value: unknown): McpServerConfig {

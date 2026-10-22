@@ -80,8 +80,13 @@ pnpm dev
 pnpm --filter @ai-chat/agui-fe dev
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/agui` to the AG-UI
-server, so no CORS configuration is needed.
+Open http://localhost:5173. The Vite dev server proxies `/agui` and `/mcp` to
+the AG-UI server, so no CORS configuration is needed.
+
+When one of the agent's MCP servers needs OAuth, a banner above the chat offers
+**Authorize**. It opens the server's consent page in a new tab, which closes
+itself once the flow finishes. The banner polls `/mcp/servers` until every
+server is connected.
 
 ## Configuration
 
@@ -89,8 +94,8 @@ Copy [`.env.example`](.env.example) to `.env` to override defaults:
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `VITE_AGUI_URL` | `/agui` | URL the browser POSTs runs to. Use an absolute URL to skip the proxy and hit a remote server directly. |
-| `VITE_AGUI_TARGET` | `http://localhost:3000` | Dev-only: where the Vite proxy forwards `/agui`. |
+| `VITE_AGUI_URL` | `/agui` | URL the browser POSTs runs to. Use an absolute URL to skip the proxy and hit a remote server directly. MCP status is fetched from `mcp/servers` next to it. |
+| `VITE_AGUI_TARGET` | `http://localhost:3000` | Dev-only: where the Vite proxy forwards `/agui` and `/mcp`. |
 
 ## Conversation identifiers
 

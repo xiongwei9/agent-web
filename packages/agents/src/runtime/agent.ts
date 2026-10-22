@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import type { BaseEvent } from "@ag-ui/core";
 import { Observable } from "rxjs";
 
-import type { AgentConfig, AgentRunner } from "../types.ts";
+import type { Agent, AgentConfig } from "../types.ts";
 import { a2uiSystemPromptSection } from "./a2ui.ts";
 import { hitlSystemPromptSection } from "./hitl.ts";
 import { runAgentLoop } from "./loop.ts";
@@ -17,7 +17,7 @@ import { Toolset } from "./tools.ts";
 const DEFAULT_SYSTEM_PROMPT_URL = new URL("../system-prompt.md", import.meta.url);
 
 /**
- * Builds the agent runner: no agent framework, just the raw model and a
+ * Builds the agent: no agent framework, just the raw model and a
  * hand-written agentic loop (see {@link runAgentLoop}) that drives the model via
  * its `@ai-sdk/*` streaming interface and emits AG-UI events itself.
  *
@@ -26,10 +26,12 @@ const DEFAULT_SYSTEM_PROMPT_URL = new URL("../system-prompt.md", import.meta.url
  * and client-fulfilled tools — A2UI surfaces, the Human-in-the-Loop prompts,
  * and whatever the request declares in `RunAgentInput.tools`.
  *
+ * `mcp` exposes the MCP servers' connection state and OAuth flow to the app.
+ *
  * Throws at construction when `config.languageModel.apiKey` is missing, so a
  * misconfigured server fails at startup rather than on the first request.
  */
-export function createAgentRunner(config: AgentConfig = {}): AgentRunner {
+export function createAgent(config: AgentConfig = {}): Agent {
   const model = createLanguageModel(resolveLanguageModelConfig(config.languageModel ?? {}));
   const toolset = new Toolset(config.mcp);
   const persona = composePersona(
@@ -38,7 +40,7 @@ export function createAgentRunner(config: AgentConfig = {}): AgentRunner {
   );
   const execution = config.execution;
 
-  return (input): Observable<BaseEvent> => {
+  const run = (input: Parameters<Agent["run"]>[0]): Observable<BaseEvent> => {
     // The toolset resolves lazily (MCP connects on first use); fold that async
     // work into the run Observable so a connection failure surfaces as a run
     // error rather than throwing synchronously here.
@@ -77,6 +79,8 @@ export function createAgentRunner(config: AgentConfig = {}): AgentRunner {
       };
     });
   };
+
+  return { run, mcp: toolset.mcp };
 }
 
 /**

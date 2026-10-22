@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { useChat } from "../hooks/useChat";
 import { Composer } from "./Composer";
+import { McpStatusBanner } from "./McpStatusBanner";
 import { MessageList } from "./MessageList";
 
 export function Chat() {
@@ -44,6 +45,8 @@ export function Chat() {
           New chat
         </button>
       </div>
+
+      <McpStatusBanner />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-2" ref={scrollRef}>
         <MessageList
