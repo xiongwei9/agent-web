@@ -32,6 +32,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         apiKey: emptyToUndefined(env.MODEL_API_KEY),
         baseURL: emptyToUndefined(env.MODEL_BASE_URL),
         model: emptyToUndefined(env.MODEL_NAME),
+        headers: readModelHeaders(env.MODEL_HEADERS),
       },
       execution: {
         maxToolIterations: readOptionalPositiveInteger(env.AGENT_MAX_TOOL_ITERATIONS),
@@ -74,6 +75,28 @@ function readLanguageModelApi(value: string | undefined): OpenAIModelApi | undef
   }
 
   throw new Error(`Unsupported MODEL_API "${api}". Supported values: responses, chat`);
+}
+
+function readModelHeaders(value: string | undefined): Record<string, string> | undefined {
+  const raw = emptyToUndefined(value);
+  if (!raw) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `Invalid MODEL_HEADERS JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (!isRecord(parsed) || Object.values(parsed).some((header) => typeof header !== "string")) {
+    throw new Error("Invalid MODEL_HEADERS: expected a JSON object of string header values.");
+  }
+
+  return parsed as Record<string, string>;
 }
 
 function readMcpConfig(value: string | undefined): McpConfig | undefined {
