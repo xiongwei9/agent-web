@@ -3,6 +3,7 @@ import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 
 import { MCP_OAUTH_CALLBACK_PATH } from "../config.ts";
+import { sessionUserId } from "../session.ts";
 
 interface McpRoutesOptions {
   mcp: McpConnections | undefined;
@@ -31,19 +32,21 @@ export const mcpRoutes: FastifyPluginAsyncZod<McpRoutesOptions> = async (app, { 
         tags: ["mcp"],
         summary: "MCP server status",
         description:
-          "Connects any MCP server that isn't connected yet, then reports each one's status. " +
-          "A `needs_auth` server carries the `authorizationUrl` the user has to open.",
+          "For the session's user: connects any MCP server that isn't connected yet, then " +
+          "reports each one's status. A `needs_auth` server carries the `authorizationUrl` " +
+          "the user has to open.",
         response: {
           200: z.object({ servers: z.array(serverInfoSchema) }),
         },
       },
     },
-    async () => {
+    async (request, reply) => {
       if (!mcp) {
         return { servers: [] };
       }
-      await mcp.connect();
-      return { servers: mcp.status() };
+      const userId = sessionUserId(request, reply);
+      await mcp.connect(userId);
+      return { servers: mcp.status(userId) };
     },
   );
 
@@ -55,7 +58,8 @@ export const mcpRoutes: FastifyPluginAsyncZod<McpRoutesOptions> = async (app, { 
         summary: "MCP OAuth callback",
         description:
           "Redirect target of the MCP authorization servers. Exchanges the code for tokens " +
-          "and connects the server, then renders a page the user can close.",
+          "and connects the server for the user who started the flow (found by `state`, so " +
+          "no session is needed), then renders a page the user can close.",
         querystring: callbackQuerySchema,
       },
     },

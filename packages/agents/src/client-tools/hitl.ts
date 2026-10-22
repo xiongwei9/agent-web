@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./types.ts";
+import type { AgentCapability } from "../capability.ts";
+import type { ModelFunctionTool } from "../model/types.ts";
+import type { FrontendTool, ToolArgsValidation } from "../tools/types.ts";
 
 /**
  * Human-in-the-Loop (HITL) tools for the agent loop.
@@ -25,24 +27,38 @@ import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./type
 export const HITL_ASK_USER_TOOL_NAME = "ask_user";
 export const HITL_REQUEST_APPROVAL_TOOL_NAME = "request_user_approval";
 
+/** Human-in-the-Loop as an agent capability: the usage guide plus both prompts. */
+export function hitlCapability(): AgentCapability {
+  return {
+    systemPrompt: () => HITL_SYSTEM_PROMPT,
+    clientTools: hitlFrontendTools,
+  };
+}
+
+/**
+ * A prompt the user never answered (they typed instead) reads to the model the
+ * same way as one they dismissed, per the tools' documented contract.
+ */
+const UNANSWERED_RESULT = JSON.stringify({
+  cancelled: true,
+  reason: "The user did not answer this prompt and continued the conversation instead.",
+});
+
 /** The client-fulfilled HITL tools, ready for the loop's frontend-tool registry. */
 export function hitlFrontendTools(): FrontendTool[] {
   return [
     {
       def: askUserToolDef(),
       validate: (rawArgs) => validate(HITL_ASK_USER_TOOL_NAME, askUserSchema, rawArgs),
+      unansweredResult: UNANSWERED_RESULT,
     },
     {
       def: requestApprovalToolDef(),
       validate: (rawArgs) =>
         validate(HITL_REQUEST_APPROVAL_TOOL_NAME, requestApprovalSchema, rawArgs),
+      unansweredResult: UNANSWERED_RESULT,
     },
   ];
-}
-
-/** The HITL usage guide appended to the agent's system prompt. */
-export function hitlSystemPromptSection(): string {
-  return HITL_SYSTEM_PROMPT;
 }
 
 const optionSchema = z.object({

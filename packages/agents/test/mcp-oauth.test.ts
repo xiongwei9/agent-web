@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, describe, mock, test } from "node:test";
 
 import { DEMO_SCOPE, startDemoHttpServer, type DemoHttpServer } from "@ai-chat/mcp-server-demo";
 
-import { McpToolRegistry } from "../src/runtime/mcp.ts";
-import type { McpServerConfig, McpServerInfo } from "../src/types.ts";
+import { McpToolRegistry } from "../src/mcp/registry.ts";
+import { createFileMcpOAuthStore } from "../src/mcp/oauth/store.ts";
+import type { McpOAuthStore, McpServerConfig, McpServerInfo } from "../src/types.ts";
 import { submitConsent } from "./helpers.ts";
 
 // Never actually requested: the tests read `code` / `state` off the redirect.
@@ -15,10 +19,14 @@ const OAUTH = { redirectUrl: REDIRECT_URL, clientName: "agents-test" };
 function openRegistry(
   t: { after: (fn: () => Promise<void>) => void },
   servers: Record<string, McpServerConfig>,
-  { oauth = true }: { oauth?: boolean } = {},
+  {
+    oauth = true,
+    store,
+    authorizationHint,
+  }: { oauth?: boolean; store?: McpOAuthStore; authorizationHint?: string } = {},
 ): McpToolRegistry {
   const registry = new McpToolRegistry(servers, {
-    oauth: oauth ? OAUTH : undefined,
+    oauth: oauth ? { ...OAUTH, store, authorizationHint } : undefined,
     retryDelayMs: 0,
   });
   t.after(() => registry.close());
@@ -205,7 +213,7 @@ describe("McpToolRegistry token lifecycle", () => {
     assert.equal(serverInfo(registry).status, "connected");
   });
 
-  test("asks for authorization again when the server forgets its clients", async (t) => {
+  test("keeps the tools and asks for authorization when the token stops working", async (t) => {
     const first = await startDemoHttpServer({ oauth: true });
     const { port } = first;
     const registry = openRegistry(t, { demo: { url: first.url } });
@@ -221,15 +229,133 @@ describe("McpToolRegistry token lifecycle", () => {
 
     // The stale token gets 401; refreshing fails (unknown client), so the SDK
     // re-registers and starts a new authorization.
-    await assert.rejects(async () => echo.execute({ text: "rejected" }), /Unauthorized/);
+    await assert.rejects(
+      async () => echo.execute({ text: "rejected" }),
+      /MCP server "demo" needs the user's authorization before its tools can be used/,
+    );
     const info = serverInfo(registry);
     assert.equal(info.status, "needs_auth");
     assert.ok(info.authorizationUrl, "a fresh authorization URL for the new server");
+
+    // The model still sees the tools, and calling one explains what's wrong
+    // without reconnecting (which would replace the authorization URL).
+    assert.ok((await registry.getToolNames()).has("demo__echo"));
+    await assert.rejects(
+      async () => echo.execute({ text: "again" }),
+      /needs the user's authorization/,
+    );
+    assert.equal(serverInfo(registry).authorizationUrl, info.authorizationUrl);
 
     await authorize(registry);
     assert.equal(
       await (await registry.getTools()).get("demo__echo")!.execute({ text: "after" }),
       "after",
     );
+  });
+});
+
+describe("McpToolRegistry authorization prompt section", () => {
+  let server: DemoHttpServer;
+  let open: DemoHttpServer;
+
+  before(async () => {
+    [server, open] = await Promise.all([
+      startDemoHttpServer({ oauth: true }),
+      startDemoHttpServer(),
+    ]);
+    mock.method(console, "warn", () => {});
+  });
+
+  after(async () => {
+    mock.restoreAll();
+    await Promise.all([server.close(), open.close()]);
+  });
+
+  test("is undefined when no server waits for authorization", async (t) => {
+    const registry = openRegistry(t, { open: { url: open.url } });
+
+    assert.equal(registry.authorizationPromptSection(), undefined, "before connecting");
+    await registry.connect();
+    assert.equal(registry.authorizationPromptSection(), undefined, "once connected");
+  });
+
+  test("names the servers waiting for authorization", async (t) => {
+    const registry = openRegistry(t, { demo: { url: server.url }, open: { url: open.url } });
+    await registry.connect();
+
+    const section = registry.authorizationPromptSection();
+    assert.match(section ?? "", /^## MCP servers awaiting authorization/);
+    assert.match(section ?? "", /authorization before you can use them: `demo`\./);
+    assert.doesNotMatch(section ?? "", /`open`/);
+    assert.match(section ?? "", /Ask the user to authorize it, then try again\./);
+  });
+
+  test("uses the configured authorization hint", async (t) => {
+    const hint = 'The user authorizes it with the "Authorize" button above the chat.';
+    const registry = openRegistry(t, { demo: { url: server.url } }, { authorizationHint: hint });
+    await registry.connect();
+
+    assert.ok(registry.authorizationPromptSection()?.endsWith(hint));
+  });
+
+  test("goes away once the server is authorized", async (t) => {
+    const registry = openRegistry(t, { demo: { url: server.url } });
+    await authorize(registry);
+
+    assert.equal(registry.authorizationPromptSection(), undefined);
+  });
+});
+
+describe("McpToolRegistry with a file OAuth store", () => {
+  let server: DemoHttpServer;
+  let dir: string;
+
+  before(async () => {
+    server = await startDemoHttpServer({ oauth: true });
+    dir = await mkdtemp(join(tmpdir(), "mcp-oauth-"));
+    mock.method(console, "warn", () => {});
+  });
+
+  after(async () => {
+    mock.restoreAll();
+    await server.close();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("reuses the stored tokens after a restart", async (t) => {
+    const path = join(dir, "restart.json");
+    const first = openRegistry(
+      t,
+      { demo: { url: server.url } },
+      { store: createFileMcpOAuthStore(path) },
+    );
+    await authorize(first);
+    await first.close();
+
+    // A new process: fresh registry, fresh store instance, same file.
+    const second = openRegistry(
+      t,
+      { demo: { url: server.url } },
+      { store: createFileMcpOAuthStore(path) },
+    );
+    await second.connect();
+    assert.deepEqual(serverInfo(second), { id: "demo", status: "connected", toolCount: 7 });
+    assert.equal(
+      await (await second.getTools()).get("demo__echo")!.execute({ text: "no re-auth" }),
+      "no re-auth",
+    );
+  });
+
+  test("starts over when the server's URL changes", async (t) => {
+    const path = join(dir, "moved.json");
+    const store = createFileMcpOAuthStore(path);
+    const first = openRegistry(t, { demo: { url: server.url } }, { store });
+    await authorize(first);
+    await first.close();
+
+    // Same server id, different URL (a trailing query keeps it the same server).
+    const second = openRegistry(t, { demo: { url: `${server.url}?v=2` } }, { store });
+    await second.connect();
+    assert.equal(serverInfo(second).status, "needs_auth");
   });
 });

@@ -12,7 +12,7 @@ import {
   createMcpToolRegistry,
   McpToolRegistry,
   type McpToolRegistryOptions,
-} from "../src/runtime/mcp.ts";
+} from "../src/mcp/registry.ts";
 import type { McpServerConfig } from "../src/types.ts";
 import { unreachableMcpUrl } from "./helpers.ts";
 
@@ -170,6 +170,23 @@ describe("McpToolRegistry over Streamable HTTP", () => {
     await registry.close();
     const second = await whoami(registry, "demo__whoami");
     assert.notEqual(second.headers["mcp-session-id"], first.headers["mcp-session-id"]);
+  });
+
+  test("cancels an in-flight call when the run is aborted", async (t) => {
+    const registry = openRegistry(t, { demo: { url: server.url } });
+    const sleepTool = (await registry.getTools()).get("demo__sleep")!;
+    const session = (await whoami(registry, "demo__whoami")).headers["mcp-session-id"];
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 100);
+
+    const started = Date.now();
+    await assert.rejects(
+      async () => sleepTool.execute({ ms: 5_000 }, { signal: controller.signal }),
+      /abort/i,
+    );
+    assert.ok(Date.now() - started < 2_000, "returned well before the 5s sleep finished");
+    // An abort is our own cancel, not a transport failure: same session after.
+    assert.equal((await whoami(registry, "demo__whoami")).headers["mcp-session-id"], session);
   });
 
   test("enforces timeoutMs on tool calls", async (t) => {

@@ -25,7 +25,9 @@ export function useMcpServers(): McpServerInfo[] {
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch(MCP_SERVERS_URL, { signal });
+      // `include`: the session cookie identifies whose MCP servers these are,
+      // also when the server is on another origin.
+      const response = await fetch(MCP_SERVERS_URL, { signal, credentials: "include" });
       if (!response.ok) {
         return;
       }

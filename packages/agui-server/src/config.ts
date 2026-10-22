@@ -1,8 +1,13 @@
+import { resolve } from "node:path";
+
 import {
+  createFileMcpOAuthStore,
   LANGUAGE_MODEL_PROVIDERS,
   type AgentConfig,
   type LanguageModelProvider,
   type McpConfig,
+  type McpOAuthConfig,
+  type McpOAuthStore,
   type McpServerConfig,
   type OpenAIModelApi,
 } from "@ai-chat/agents";
@@ -11,13 +16,23 @@ const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_LOG_LEVEL = "info";
 const DEFAULT_PORT = 3000;
 const MCP_OAUTH_CLIENT_NAME = "ai-chat";
+const DEFAULT_MCP_OAUTH_STORE_PATH = ".mcp-oauth.json";
+const MCP_OAUTH_AUTHORIZATION_HINT =
+  'In this app the user authorizes it with the "Authorize" button on the banner above the chat.';
 export const MCP_OAUTH_CALLBACK_PATH = "/mcp/oauth/callback";
+
+const DEFAULT_SESSION_SECRET_PATH = ".session-secret";
 
 export interface AppConfig {
   agent: AgentConfig;
   host: string;
   logLevel: string;
   port: number;
+  session: {
+    /** `SESSION_SECRET`; when unset, one is generated and kept in `secretPath`. */
+    secret: string | undefined;
+    secretPath: string;
+  };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -25,6 +40,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     host: emptyToUndefined(env.HOST) ?? DEFAULT_HOST,
     port,
+    session: {
+      secret: emptyToUndefined(env.SESSION_SECRET),
+      secretPath: resolve(DEFAULT_SESSION_SECRET_PATH),
+    },
     logLevel: emptyToUndefined(env.LOG_LEVEL) ?? DEFAULT_LOG_LEVEL,
     agent: {
       systemPrompt: emptyToUndefined(env.SYSTEM_PROMPT),
@@ -34,12 +53,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         apiKey: emptyToUndefined(env.MODEL_API_KEY),
         baseURL: emptyToUndefined(env.MODEL_BASE_URL),
         model: emptyToUndefined(env.MODEL_NAME),
+        contextWindow: readOptionalPositiveInteger(env.MODEL_CONTEXT_WINDOW),
         headers: readModelHeaders(env.MODEL_HEADERS),
       },
       execution: {
         maxToolIterations: readOptionalPositiveInteger(env.AGENT_MAX_TOOL_ITERATIONS),
       },
-      mcp: readMcpConfig(env.MCP_SERVERS, readMcpOAuthRedirectUrl(env, port)),
+      mcp: readMcpConfig(env.MCP_SERVERS, {
+        redirectUrl: readMcpOAuthRedirectUrl(env, port),
+        clientName: MCP_OAUTH_CLIENT_NAME,
+        authorizationHint: MCP_OAUTH_AUTHORIZATION_HINT,
+        store: readMcpOAuthStore(env.MCP_OAUTH_STORE_PATH),
+      }),
     },
   };
 }
@@ -110,7 +135,17 @@ function readMcpOAuthRedirectUrl(env: NodeJS.ProcessEnv, port: number): string {
   }
 }
 
-function readMcpConfig(value: string | undefined, oauthRedirectUrl: string): McpConfig | undefined {
+/**
+ * Where MCP OAuth tokens persist, so a restart (e.g. `--watch` on every edit)
+ * doesn't mean authorizing again. Relative to the working directory; `off`
+ * keeps them in memory only.
+ */
+function readMcpOAuthStore(value: string | undefined): McpOAuthStore | undefined {
+  const path = emptyToUndefined(value) ?? DEFAULT_MCP_OAUTH_STORE_PATH;
+  return path === "off" ? undefined : createFileMcpOAuthStore(resolve(path));
+}
+
+function readMcpConfig(value: string | undefined, oauth: McpOAuthConfig): McpConfig | undefined {
   const raw = emptyToUndefined(value);
   if (!raw) {
     return undefined;
@@ -144,7 +179,7 @@ function readMcpConfig(value: string | undefined, oauthRedirectUrl: string): Mcp
     servers[serverId] = readMcpServerConfig(serverId, serverValue);
   }
 
-  return { servers, oauth: { redirectUrl: oauthRedirectUrl, clientName: MCP_OAUTH_CLIENT_NAME } };
+  return { servers, oauth };
 }
 
 function readMcpServerConfig(serverId: string, value: unknown): McpServerConfig {

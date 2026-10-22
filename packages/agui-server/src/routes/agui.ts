@@ -3,6 +3,8 @@ import { aguiEvent, type AgentRunner } from "@ai-chat/agents";
 import { EventEncoder } from "@ag-ui/encoder";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
+
+import { sessionUserId } from "../session.ts";
 import { z } from "zod";
 
 interface AguiRoutesOptions {
@@ -38,6 +40,9 @@ async function handleAguiRun(
   reply: FastifyReply,
   runAgent: AgentRunner,
 ) {
+  // Before hijacking: a new session's cookie must go into the raw headers below.
+  const userId = sessionUserId(request, reply);
+  const setCookie = reply.getHeader("set-cookie") as string | undefined;
   reply.hijack();
 
   const input = request.body;
@@ -50,9 +55,10 @@ async function handleAguiRun(
     "cache-control": "no-cache, no-transform",
     connection: "keep-alive",
     "x-accel-buffering": "no",
+    ...(setCookie ? { "set-cookie": setCookie } : {}),
   });
 
-  const events$ = runAgent(input);
+  const events$ = runAgent(input, { userId });
 
   await new Promise<void>((resolve) => {
     let settled = false;

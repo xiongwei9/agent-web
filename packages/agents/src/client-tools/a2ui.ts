@@ -1,6 +1,9 @@
 import { A2uiMessageListSchema } from "@a2ui/web_core/v0_9";
 
-import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./types.ts";
+import type { AgentCapability } from "../capability.ts";
+import type { ModelFunctionTool } from "../model/types.ts";
+import { joinSections, safeStringify, tryParseJson } from "../shared/utils.ts";
+import type { FrontendTool, ToolArgsValidation } from "../tools/types.ts";
 
 /**
  * A2UI (Agent-to-UI) support for the agent loop.
@@ -26,6 +29,14 @@ import type { FrontendTool, ModelFunctionTool, ToolArgsValidation } from "./type
  */
 export const A2UI_RENDER_TOOL_NAME = "render_a2ui";
 
+/** A2UI as an agent capability: the authoring guide plus the render tool. */
+export function a2uiCapability(): AgentCapability {
+  return {
+    systemPrompt: () => A2UI_SYSTEM_PROMPT,
+    clientTools: () => [a2uiFrontendTool()],
+  };
+}
+
 /**
  * The client-fulfilled A2UI tool, ready for the loop's frontend-tool registry:
  * the declaration advertised to the model plus the schema check that keeps a
@@ -34,6 +45,9 @@ export const A2UI_RENDER_TOOL_NAME = "render_a2ui";
 export function a2uiFrontendTool(): FrontendTool {
   return {
     def: a2uiRenderToolDef(),
+    // The client resumes with the user's interaction as a regular user turn,
+    // so a past surface reads as something the assistant showed, not a call.
+    replayAsText: { call: formatA2uiSurface, result: formatA2uiAction },
     validate: (rawArgs) => {
       const validation = validateA2uiMessages(rawArgs);
       if (validation.ok) {
@@ -52,7 +66,7 @@ export function a2uiFrontendTool(): FrontendTool {
 /**
  * The function declaration advertised to the model. A2UI v0.9 is "prompt-first"
  * — the detailed component schemas live in the system prompt (see
- * {@link a2uiSystemPromptSection}), so the tool's JSON Schema stays permissive
+ * `A2UI_SYSTEM_PROMPT` below), so the tool's JSON Schema stays permissive
  * and only pins the envelope: a list of A2UI message objects.
  */
 function a2uiRenderToolDef(): ModelFunctionTool {
@@ -118,15 +132,21 @@ function validateA2uiMessages(rawArgs: string): ToolArgsValidation {
   return { ok: false, error: `do not match the A2UI v0.9 schema (${detail}).` };
 }
 
+function formatA2uiSurface(rawArgs: string): string {
+  const parsed = tryParseJson(rawArgs);
+  const detail = parsed === undefined ? rawArgs : safeStringify(parsed, 2);
+  return joinSections(["[A2UI surface rendered for the user]", detail])!;
+}
+
+function formatA2uiAction(content: string | undefined): string {
+  return joinSections(["[A2UI user action]", content])!;
+}
+
 /**
  * The A2UI authoring guide appended to the agent's system prompt. Teaches the
  * model the v0.9 message envelope, the flat component model, data binding, and
  * the basic catalog so it can author valid surfaces via {@link a2uiRenderToolDef}.
  */
-export function a2uiSystemPromptSection(): string {
-  return A2UI_SYSTEM_PROMPT;
-}
-
 const A2UI_SYSTEM_PROMPT = `# Generative UI with A2UI
 
 You can render rich, interactive UI to the user by calling the \`${A2UI_RENDER_TOOL_NAME}\` tool with a list of A2UI v0.9 messages. Use it whenever a card, form, list, profile, or any interactive layout communicates better than plain text. Otherwise just reply with text.

@@ -8,8 +8,9 @@ import {
   readSkillBody,
   resolveWithinSkill,
   type SkillSpec,
-} from "../skills/index.ts";
-import type { ServerTool } from "./types.ts";
+} from "./index.ts";
+import type { AgentCapability } from "../capability.ts";
+import type { ServerTool } from "../tools/types.ts";
 
 const SCRIPT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_CHARS = 100_000;
@@ -19,14 +20,14 @@ const MAX_OUTPUT_CHARS = 100_000;
  * progressive disclosure: the model spends almost no context on skills until it
  * needs one.
  *
- *  - Level 1 — {@link systemPromptSection} lists each skill's name + description
+ *  - Level 1 — {@link systemPrompt} lists each skill's name + description
  *    in the system prompt. That's all that's always in context.
  *  - Level 2 — the `Skill` tool loads a skill's full `SKILL.md` body plus a
  *    manifest of its bundled files, on demand.
  *  - Level 3 — `read_skill_file` reads a bundled resource and `run_skill_script`
  *    executes a bundled script, both sandboxed to the skill's own directory.
  */
-export class SkillsToolset {
+export class SkillsToolset implements AgentCapability {
   private readonly skills: Map<string, SkillSpec>;
 
   constructor() {
@@ -38,7 +39,7 @@ export class SkillsToolset {
   }
 
   /** Level 1: the always-present skill catalog, or undefined when there are none. */
-  systemPromptSection(): string | undefined {
+  systemPrompt(): string | undefined {
     if (this.skills.size === 0) {
       return undefined;
     }
@@ -65,7 +66,7 @@ export class SkillsToolset {
    * marked `hidden`: skill loading / file reads / script runs are internal
    * plumbing, so the loop executes them but emits no AG-UI tool-call events.
    */
-  tools(): ServerTool[] {
+  serverTools(): ServerTool[] {
     if (this.skills.size === 0) {
       return [];
     }
@@ -153,11 +154,11 @@ export class SkillsToolset {
         required: ["skill", "script"],
         additionalProperties: false,
       },
-      execute: async (args) => {
+      execute: async (args, context) => {
         const skill = this.requireSkill(args.skill);
         const target = resolveWithinSkill(skill.dir, asString(args.script, "script"));
         const scriptArgs = Array.isArray(args.args) ? args.args.map((arg) => String(arg)) : [];
-        return runScript(target, scriptArgs, skill.dir);
+        return runScript(target, scriptArgs, skill.dir, context?.signal);
       },
     };
   }
@@ -188,14 +189,20 @@ function commandFor(scriptPath: string, scriptArgs: string[]): { command: string
   }
 }
 
-function runScript(scriptPath: string, scriptArgs: string[], cwd: string): Promise<string> {
+function runScript(
+  scriptPath: string,
+  scriptArgs: string[],
+  cwd: string,
+  signal: AbortSignal | undefined,
+): Promise<string> {
   const { command, args } = commandFor(scriptPath, scriptArgs);
 
   return new Promise((resolve) => {
     execFile(
       command,
       args,
-      { cwd, timeout: SCRIPT_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_CHARS, encoding: "utf8" },
+      // `signal` kills the script when the run is aborted.
+      { cwd, timeout: SCRIPT_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_CHARS, encoding: "utf8", signal },
       (error, stdout, stderr) => {
         const exitCode = error && typeof error.code === "number" ? error.code : error ? 1 : 0;
         const sections = [`exit code: ${exitCode}`];

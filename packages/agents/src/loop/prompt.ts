@@ -1,40 +1,44 @@
 import type { Context, Message } from "@ag-ui/core";
 
-import { contextToText } from "./utils.ts";
-import { A2UI_RENDER_TOOL_NAME } from "./a2ui.ts";
-import { HITL_ASK_USER_TOOL_NAME, HITL_REQUEST_APPROVAL_TOOL_NAME } from "./hitl.ts";
-import type { ModelAssistantContentPart, ModelMessage, ModelTextPart } from "./types.ts";
+import type { ModelAssistantContentPart, ModelMessage, ModelTextPart } from "../model/types.ts";
+import { joinSections, parseToolArguments } from "../shared/utils.ts";
+import type { FrontendTool } from "../tools/types.ts";
+
+const UNANSWERED_RESULT = "No result was returned for this tool call; it was not completed.";
 
 /**
  * Maps an AG-UI run (agent persona + request context + message history) onto
  * the standardized model prompt. This is what reconstructs a multi-turn,
- * tool-calling conversation. A2UI render calls are UI-only history: the client
- * resumes with the user's interaction as a regular `user` message, so those
- * render calls are preserved as assistant text rather than model tool calls.
+ * tool-calling conversation. A client tool can ask for its calls to be replayed
+ * as conversation instead (`FrontendTool.replayAsText`, e.g. A2UI surfaces,
+ * whose "result" is the user's next turn).
  *
  * To emit spec-valid tool-result parts (which require the tool's name) we track
  * each tool call's name from the assistant messages as we walk the history.
  *
  * Tool calls the client never answered are backfilled with a placeholder result
- * (see {@link unansweredToolResult}). A run suspended on a Human-in-the-Loop
- * prompt leaves one open by design, and the user may simply type instead of
- * answering it — model APIs reject a prompt whose tool call has no result, so
- * the history is closed out here rather than failing the next run.
+ * (the tool's `unansweredResult`, or a generic note). A run suspended on a
+ * Human-in-the-Loop prompt leaves one open by design, and the user may simply
+ * type instead of answering it — model APIs reject a prompt whose tool call
+ * has no result, so the history is closed out here rather than failing the
+ * next run.
  */
 export function buildPrompt(
   messages: Message[],
   persona: string | undefined,
   context: Context[],
+  clientTools: ReadonlyMap<string, FrontendTool> = new Map(),
 ): ModelMessage[] {
   const prompt: ModelMessage[] = [];
 
-  const systemText = joinNonEmpty([persona, contextToText(context)]);
+  const systemText = joinSections([persona, contextToText(context)]);
   if (systemText) {
     prompt.push({ role: "system", content: systemText });
   }
 
   const toolNameById = new Map<string, string>();
-  const a2uiToolCallIds = new Set<string>();
+  /** Calls replayed as text, by id → the tool that formats their result. */
+  const textReplays = new Map<string, NonNullable<FrontendTool["replayAsText"]>>();
   const answeredToolCallIds = new Set(
     messages
       .filter((message) => message.role === "tool")
@@ -62,9 +66,10 @@ export function buildPrompt(
         }
         for (const toolCall of message.toolCalls ?? []) {
           const toolName = toolCall.function.name;
-          if (toolName === A2UI_RENDER_TOOL_NAME) {
-            a2uiToolCallIds.add(toolCall.id);
-            content.push({ type: "text", text: formatA2uiSurface(toolCall.function.arguments) });
+          const replay = clientTools.get(toolName)?.replayAsText;
+          if (replay) {
+            textReplays.set(toolCall.id, replay);
+            content.push({ type: "text", text: replay.call(toolCall.function.arguments) });
             continue;
           }
 
@@ -73,7 +78,7 @@ export function buildPrompt(
             type: "tool-call",
             toolCallId: toolCall.id,
             toolName,
-            input: parseJsonObject(toolCall.function.arguments),
+            input: parseToolArguments(toolCall.function.arguments),
           });
         }
         if (content.length > 0) {
@@ -88,7 +93,10 @@ export function buildPrompt(
                   type: "tool-result",
                   toolCallId: part.toolCallId,
                   toolName: part.toolName,
-                  output: { type: "text", value: unansweredToolResult(part.toolName) },
+                  output: {
+                    type: "text",
+                    value: clientTools.get(part.toolName)?.unansweredResult ?? UNANSWERED_RESULT,
+                  },
                 },
               ],
             });
@@ -97,10 +105,11 @@ export function buildPrompt(
         break;
       }
       case "tool": {
-        if (a2uiToolCallIds.has(message.toolCallId)) {
+        const replay = textReplays.get(message.toolCallId);
+        if (replay) {
           prompt.push({
             role: "user",
-            content: [{ type: "text", text: formatA2uiAction(message.content) }],
+            content: [{ type: "text", text: replay.result(message.content) }],
           });
           break;
         }
@@ -126,22 +135,6 @@ export function buildPrompt(
   return prompt;
 }
 
-/**
- * Stands in for a tool call the client never answered. Human-in-the-Loop
- * prompts get the cancellation payload their contract documents, so the model
- * reads it the same way as a user-dismissed prompt; anything else gets a plain
- * note that the call went unfulfilled.
- */
-function unansweredToolResult(toolName: string): string {
-  if (toolName === HITL_ASK_USER_TOOL_NAME || toolName === HITL_REQUEST_APPROVAL_TOOL_NAME) {
-    return JSON.stringify({
-      cancelled: true,
-      reason: "The user did not answer this prompt and continued the conversation instead.",
-    });
-  }
-  return "No result was returned for this tool call; it was not completed.";
-}
-
 function extractUserText(content: unknown): string {
   if (typeof content === "string") {
     return content;
@@ -159,44 +152,10 @@ function extractUserText(content: unknown): string {
   return "";
 }
 
-function parseJsonObject(raw: string): unknown {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-function formatA2uiSurface(rawArgs: string): string {
-  const parsed = parseJsonValue(rawArgs);
-  const detail = parsed === undefined ? rawArgs : stringifyForPrompt(parsed);
-  return (
-    joinNonEmpty(["[A2UI surface rendered for the user]", detail]) ??
-    "[A2UI surface rendered for the user]"
-  );
-}
-
-function formatA2uiAction(content: string | undefined): string {
-  return joinNonEmpty(["[A2UI user action]", content]) ?? "[A2UI user action]";
-}
-
-function parseJsonValue(raw: string): unknown | undefined {
-  try {
-    return JSON.parse(raw);
-  } catch {
+function contextToText(context: Context[]): string | undefined {
+  if (context.length === 0) {
     return undefined;
   }
-}
 
-function stringifyForPrompt(value: unknown): string | undefined {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return undefined;
-  }
-}
-
-function joinNonEmpty(parts: (string | undefined)[]): string | undefined {
-  const joined = parts.filter((part): part is string => Boolean(part && part.trim())).join("\n\n");
-  return joined.length > 0 ? joined : undefined;
+  return context.map((item) => `${item.description}: ${item.value}`).join("\n");
 }

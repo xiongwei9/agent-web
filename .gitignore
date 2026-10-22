@@ -1,3 +1,5 @@
 node_modules
+.mcp-oauth.json
+.session-secret
 dist/
 .env

@@ -1,9 +1,11 @@
-export { aguiEvent } from "./events.ts";
-export { createAgent } from "./runtime/agent.ts";
+export { aguiEvent } from "./shared/events.ts";
+export { createAgent } from "./agent.ts";
+export { createFileMcpOAuthStore } from "./mcp/oauth/store.ts";
 export type {
   Agent,
   AgentConfig,
   AgentExecutionConfig,
+  AgentLogger,
   AgentRunner,
   ContextCompactionConfig,
   LanguageModelConfig,
@@ -12,6 +14,8 @@ export type {
   McpConfig,
   McpConnections,
   McpOAuthConfig,
+  McpOAuthCredentials,
+  McpOAuthStore,
   McpServerConfig,
   McpServerInfo,
   McpServerStatus,
@@ -19,5 +23,6 @@ export type {
   McpStdioServerConfig,
   McpStreamableHttpServerConfig,
   OpenAIModelApi,
+  RunContext,
 } from "./types.ts";
 export { LANGUAGE_MODEL_PROVIDERS } from "./types.ts";

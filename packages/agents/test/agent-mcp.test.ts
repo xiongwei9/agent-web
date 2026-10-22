@@ -5,9 +5,12 @@ import { EventType, type BaseEvent, type Message } from "@ag-ui/core";
 import { startDemoHttpServer, type DemoHttpServer } from "@ai-chat/mcp-server-demo";
 import { lastValueFrom, toArray } from "rxjs";
 
-import { runAgentLoop } from "../src/runtime/loop.ts";
-import { Toolset } from "../src/runtime/tools.ts";
-import type { LanguageModel, ModelMessage } from "../src/runtime/types.ts";
+import { runAgentLoop } from "../src/loop/loop.ts";
+import { mcpCapability } from "../src/mcp/capability.ts";
+import { createMcpToolRegistry } from "../src/mcp/registry.ts";
+import { builtinCapability } from "../src/tools/builtin.ts";
+import { resolveRunTools } from "../src/tools/toolset.ts";
+import type { LanguageModel, ModelMessage } from "../src/model/types.ts";
 import type { McpConfig } from "../src/types.ts";
 import { scriptedModel, textTurn, toolCallTurn, unreachableMcpUrl } from "./helpers.ts";
 
@@ -20,8 +23,9 @@ async function runWithMcp(
   mcp: McpConfig,
   model: LanguageModel,
 ): Promise<AnyEvent[]> {
-  const toolset = new Toolset(mcp);
-  t.after(() => toolset.close());
+  const registry = createMcpToolRegistry(mcp)!;
+  t.after(() => registry.close());
+  const tools = await resolveRunTools([builtinCapability(), mcpCapability(registry)]);
 
   const events = runAgentLoop({
     threadId: "thread-1",
@@ -31,7 +35,7 @@ async function runWithMcp(
     context: [],
     persona: undefined,
     model,
-    serverTools: await toolset.resolve(),
+    serverTools: tools.serverTools,
   });
   return (await lastValueFrom(events.pipe(toArray()))) as AnyEvent[];
 }

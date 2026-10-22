@@ -1,6 +1,15 @@
+import { createHash } from "node:crypto";
+
 import { get_encoding, type Tiktoken } from "tiktoken";
 
-import type { ModelCallOptions, ModelMessage, ModelStreamPart, LanguageModel } from "./types.ts";
+import { safeStringify } from "../shared/utils.ts";
+
+import type {
+  ModelCallOptions,
+  ModelMessage,
+  ModelStreamPart,
+  LanguageModel,
+} from "../model/types.ts";
 
 /**
  * Context compaction ("prompt optimization"): when the prompt grows too large —
@@ -11,6 +20,11 @@ import type { ModelCallOptions, ModelMessage, ModelStreamPart, LanguageModel } f
  *
  * This keeps multi-turn, tool-heavy runs inside the model's context window
  * without losing the thread of what happened earlier.
+ *
+ * The client resends the whole history every run, so each thread's latest
+ * summary is remembered ({@link CompactionCache}) and reapplied while the
+ * history still starts with the messages it covers: a long conversation is
+ * summarized once, then incrementally, instead of from scratch every turn.
  */
 export interface CompactionOptions {
   /** Master switch. When false, the prompt is never compacted. */
@@ -29,21 +43,75 @@ export interface CompactionOptions {
   keepRecentMessages: number;
 }
 
-export const DEFAULT_COMPACTION: CompactionOptions = {
-  enabled: true,
-  // Tuned for a 1M-token context window: trigger at ~80% to leave headroom for
-  // the model's response and the next turn before the hard limit. Override via
-  // AgentExecutionConfig.contextCompaction.maxTokens for smaller windows.
-  maxTokens: 800_000,
-  keepRecentMessages: 8,
-};
+const DEFAULT_KEEP_RECENT_MESSAGES = 8;
+/** Trigger at 80% of the window, leaving headroom for the response and the next turn. */
+const CONTEXT_WINDOW_THRESHOLD = 0.8;
 
-/** Merges a partial config from agent execution settings onto the defaults. */
+/**
+ * Merges a partial config from agent execution settings onto the defaults;
+ * `maxTokens` defaults to 80% of the model's context window.
+ */
 export function resolveCompactionOptions(
   partial: Partial<CompactionOptions> | undefined,
+  contextWindow: number,
 ): CompactionOptions {
-  return { ...DEFAULT_COMPACTION, ...partial };
+  return {
+    enabled: partial?.enabled ?? true,
+    maxTokens: partial?.maxTokens ?? Math.floor(contextWindow * CONTEXT_WINDOW_THRESHOLD),
+    keepRecentMessages: partial?.keepRecentMessages ?? DEFAULT_KEEP_RECENT_MESSAGES,
+  };
 }
+
+/** A thread's latest summary and the leading history messages it replaces. */
+interface CachedSummary {
+  /** How many leading (non-system) history messages the summary stands in for. */
+  covered: number;
+  /** {@link chainHash} of those messages, to check the history still starts with them. */
+  hash: string;
+  summary: string;
+}
+
+const DEFAULT_CACHE_SIZE = 500;
+
+/** Each thread's latest summary, least recently used evicted first. */
+export class CompactionCache {
+  private readonly entries = new Map<string, CachedSummary>();
+  private readonly maxEntries: number;
+
+  constructor(maxEntries = DEFAULT_CACHE_SIZE) {
+    this.maxEntries = maxEntries;
+  }
+
+  get(threadId: string): CachedSummary | undefined {
+    const entry = this.entries.get(threadId);
+    if (entry) {
+      this.entries.delete(threadId);
+      this.entries.set(threadId, entry);
+    }
+    return entry;
+  }
+
+  set(threadId: string, entry: CachedSummary): void {
+    this.entries.delete(threadId);
+    this.entries.set(threadId, entry);
+    if (this.entries.size > this.maxEntries) {
+      this.entries.delete(this.entries.keys().next().value!);
+    }
+  }
+}
+
+/** Which thread a prompt belongs to, so its summary can be reused next run. */
+export interface CompactionMemory {
+  cache: CompactionCache;
+  threadId: string;
+}
+
+/**
+ * Summary messages this module inserted, with the original messages each one
+ * stands in for — so a later compaction in the same run can extend the cached
+ * coverage instead of losing track of it.
+ */
+const summaryCoverage = new WeakMap<ModelMessage, Omit<CachedSummary, "summary">>();
 
 /**
  * Per-message framing overhead in the chat format (role marker + delimiters).
@@ -108,8 +176,9 @@ function countTextTokens(text: string): number {
 
 /**
  * Returns a possibly-compacted copy of `prompt`. When the estimate is under the
- * threshold (or compaction is disabled, or no safe split exists) the original
- * array is returned unchanged.
+ * threshold (or compaction is disabled, or no safe split exists) the prompt is
+ * returned unchanged — except that a remembered summary for this thread (see
+ * `memory`) is reapplied whenever the history still starts with what it covers.
  *
  * The split is chosen so the most recent `keepRecentMessages` messages stay
  * verbatim and the boundary never starts on a `tool` message — that guarantees
@@ -121,8 +190,9 @@ export async function compactPromptIfNeeded(
   model: LanguageModel,
   options: CompactionOptions,
   abortSignal: AbortSignal,
+  memory?: CompactionMemory,
 ): Promise<ModelMessage[]> {
-  if (!options.enabled || estimateTokens(prompt) <= options.maxTokens) {
+  if (!options.enabled) {
     return prompt;
   }
 
@@ -132,27 +202,81 @@ export async function compactPromptIfNeeded(
     systemEnd += 1;
   }
   const system = prompt.slice(0, systemEnd);
-  const body = prompt.slice(systemEnd);
+  let body = prompt.slice(systemEnd);
+
+  const reused = memory ? reuseSummary(body, memory) : undefined;
+  if (reused) {
+    body = reused;
+  }
+  const current = reused ? [...system, ...body] : prompt;
+  if (estimateTokens(current) <= options.maxTokens) {
+    return current;
+  }
 
   const splitAt = chooseSplitIndex(body, options.keepRecentMessages);
   if (splitAt <= 0) {
-    return prompt;
+    return current;
   }
 
   const older = body.slice(0, splitAt);
   const recent = body.slice(splitAt);
+  if (older.length === 1 && summaryCoverage.has(older[0]!)) {
+    return current; // only the existing summary would be re-summarized
+  }
 
   const summary = await summarize(older, model, abortSignal);
   if (!summary) {
-    return prompt;
+    return current;
   }
 
-  const summaryMessage: ModelMessage = {
+  // Extend the coverage of a summary already at the front (from the cache or
+  // an earlier iteration of this run) by the original messages now folded in.
+  const previous = summaryCoverage.get(older[0]!) ?? { covered: 0, hash: "" };
+  const newlyCovered = summaryCoverage.has(older[0]!) ? older.slice(1) : older;
+  const coverage = {
+    covered: previous.covered + newlyCovered.length,
+    hash: chainHash(previous.hash, newlyCovered),
+  };
+  memory?.cache.set(memory.threadId, { ...coverage, summary });
+
+  return [...system, summaryMessage(summary, coverage), ...recent];
+}
+
+/**
+ * Swaps the leading messages a remembered summary covers for that summary, if
+ * the history still starts with exactly those messages. Returns undefined when
+ * there's nothing to reuse (no entry, history edited, or a summary is already
+ * at the front).
+ */
+function reuseSummary(body: ModelMessage[], memory: CompactionMemory): ModelMessage[] | undefined {
+  const cached = memory.cache.get(memory.threadId);
+  if (
+    !cached ||
+    cached.covered >= body.length ||
+    (body[0] && summaryCoverage.has(body[0])) ||
+    chainHash("", body.slice(0, cached.covered)) !== cached.hash
+  ) {
+    return undefined;
+  }
+  return [summaryMessage(cached.summary, cached), ...body.slice(cached.covered)];
+}
+
+function summaryMessage(summary: string, coverage: Omit<CachedSummary, "summary">): ModelMessage {
+  const message: ModelMessage = {
     role: "user",
     content: [{ type: "text", text: `[Earlier conversation summary]\n\n${summary}` }],
   };
+  summaryCoverage.set(message, { covered: coverage.covered, hash: coverage.hash });
+  return message;
+}
 
-  return [...system, summaryMessage, ...recent];
+/** Hashes messages onto `seed` one at a time, so coverage can be extended later. */
+function chainHash(seed: string, messages: ModelMessage[]): string {
+  let hash = seed;
+  for (const message of messages) {
+    hash = createHash("sha1").update(hash).update(JSON.stringify(message)).digest("hex");
+  }
+  return hash;
 }
 
 /**
@@ -250,7 +374,9 @@ function messageText(message: ModelMessage): string {
   if (message.role === "assistant") {
     return message.content
       .map((part) =>
-        part.type === "text" ? part.text : `[tool-call ${part.toolName} ${safeJson(part.input)}]`,
+        part.type === "text"
+          ? part.text
+          : `[tool-call ${part.toolName} ${safeStringify(part.input) ?? ""}]`,
       )
       .join("\n");
   }
@@ -258,12 +384,4 @@ function messageText(message: ModelMessage): string {
   return message.content
     .map((part) => `[tool-result ${part.toolName}] ${part.output.value}`)
     .join("\n");
-}
-
-function safeJson(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "";
-  }
 }

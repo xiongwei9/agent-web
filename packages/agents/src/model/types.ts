@@ -11,40 +11,6 @@
  * stay decoupled from their transitive versions.
  */
 
-/** A server-side tool the loop executes itself (local builtins, skills, MCP). */
-export interface ServerTool {
-  name: string;
-  description: string;
-  /** JSON Schema (draft-07) describing the tool's arguments. */
-  parameters: Record<string, unknown>;
-  execute: (args: Record<string, unknown>) => Promise<string> | string;
-  /**
-   * When true, the loop still executes the tool and feeds its result back to
-   * the model, but suppresses every AG-UI `TOOL_CALL_*` event for it. Used for
-   * internal plumbing the UI shouldn't render — e.g. the Agent Skills tools.
-   */
-  hidden?: boolean;
-}
-
-/** Outcome of validating a client-fulfilled tool call's raw arguments. */
-export type ToolArgsValidation = { ok: true } | { ok: false; error: string };
-
-/**
- * A tool the server declares to the model but the *client* fulfills — the A2UI
- * render tool and the HITL prompts. The loop advertises `def` alongside the
- * server tools, then suspends the run when one is called so the client can
- * render it and resume with the user's response.
- */
-export interface FrontendTool {
-  def: ModelFunctionTool;
-  /**
-   * Optional argument check. A failure is fed back to the model as the call's
-   * tool result (`error` is shown verbatim) so it can self-correct, instead of
-   * handing the client a prompt it can't render.
-   */
-  validate?: (rawArgs: string) => ToolArgsValidation;
-}
-
 export interface ModelTextPart {
   type: "text";
   text: string;

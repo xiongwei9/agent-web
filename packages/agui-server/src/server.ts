@@ -1,3 +1,4 @@
+import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
@@ -16,6 +17,7 @@ import { aguiRoutes } from "./routes/agui.ts";
 import type { AppConfig } from "./config.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
+import { loadSessionSecret } from "./session.ts";
 
 export interface BuildAppOptions {
   config: AppConfig;
@@ -67,6 +69,12 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
 
   await app.register(cors, {
     origin: true,
+    // The session cookie identifies the user (see session.ts); a frontend on
+    // another origin must send it with `credentials: "include"`.
+    credentials: true,
+  });
+  await app.register(cookie, {
+    secret: loadSessionSecret(config.session.secret, config.session.secretPath),
   });
 
   await app.register(swagger, {
@@ -94,19 +102,15 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
     },
   });
 
-  const agent = createAgent(config.agent);
+  // `debug` includes full prompts and tool results; it's on only at LOG_LEVEL=debug.
+  const agent = createAgent({ ...config.agent, logger: app.log });
 
   await app.register(healthRoutes);
   await app.register(aguiRoutes, { runAgent: agent.run });
   await app.register(mcpRoutes, { mcp: agent.mcp });
 
-  // Connect the MCP servers up front, so one that needs OAuth logs its
-  // authorization URL (and shows up in `GET /mcp/servers`) right after startup
-  // instead of on the first chat run. Not awaited: a slow server mustn't hold
-  // up the HTTP listener.
-  app.addHook("onReady", async () => {
-    void agent.mcp?.connect();
-  });
+  // MCP connections are per user and open on a user's first request (the
+  // frontend polls `GET /mcp/servers` on load), so there is nothing to warm up.
   app.addHook("onClose", async () => {
     await agent.mcp?.close();
   });

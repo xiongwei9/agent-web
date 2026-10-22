@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { startDemoHttpServer } from "@ai-chat/mcp-server-demo";
 
-import type { LanguageModel, ModelCallOptions, ModelStreamPart } from "../src/runtime/types.ts";
+import type { LanguageModel, ModelCallOptions, ModelStreamPart } from "../src/model/types.ts";
 
 /**
  * Plays the user's part of an OAuth flow against the demo server: opens the

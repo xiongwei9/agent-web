@@ -1,7 +1,21 @@
 import type { BaseEvent, RunAgentInput } from "@ag-ui/core";
+import type { OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js";
+import type {
+  OAuthClientInformationMixed,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
 import type { Observable } from "rxjs";
 
-export type AgentRunner = (input: RunAgentInput) => Observable<BaseEvent>;
+export type AgentRunner = (input: RunAgentInput, context?: RunContext) => Observable<BaseEvent>;
+
+export interface RunContext {
+  /**
+   * Who the run is for. MCP connections and OAuth tokens are kept per user, so
+   * one user's authorization never serves another. Omitted, the run uses a
+   * single shared scope (fine for one-user setups and tests).
+   */
+  userId?: string;
+}
 
 export interface Agent {
   run: AgentRunner;
@@ -9,18 +23,24 @@ export interface Agent {
   mcp: McpConnections | undefined;
 }
 
-/** What the app needs to surface MCP connection state and finish OAuth flows. */
+/**
+ * What the app needs to surface MCP connection state and finish OAuth flows.
+ * Everything is per user (see {@link RunContext.userId}); omitting `userId`
+ * means the shared scope.
+ */
 export interface McpConnections {
   /**
-   * Connects every server that isn't connected yet (failed ones are retried
-   * after a short delay; ones waiting for authorization are left alone).
+   * Connects every server that isn't connected yet for this user (failed ones
+   * are retried after a short delay; ones waiting for authorization are left
+   * alone).
    */
-  connect(): Promise<void>;
-  status(): McpServerInfo[];
+  connect(userId?: string): Promise<void>;
+  status(userId?: string): McpServerInfo[];
   /**
    * Completes an authorization: exchanges the `code` from the OAuth redirect
-   * for tokens, then connects the server whose request carried `state`.
-   * Rejects when `state` matches no pending authorization.
+   * for tokens, then connects the server whose request carried `state` — for
+   * whichever user started it, so the callback needs no session. Rejects when
+   * `state` matches no pending authorization.
    */
   finishAuth(state: string, code: string): Promise<McpServerInfo>;
   close(): Promise<void>;
@@ -67,9 +87,20 @@ export interface LanguageModelConfig {
   baseURL?: string;
   headers?: Record<string, string>;
   model?: string;
+  /**
+   * The model's context window in tokens. Context compaction triggers at 80% of
+   * it unless `contextCompaction.maxTokens` is set. Defaults by provider: 1M for
+   * `openai` and `google`, 200k for `anthropic`, 128k for `openai-compatible`.
+   */
+  contextWindow?: number;
 }
 
 export interface AgentExecutionConfig {
+  /**
+   * How many rounds of tool calls one run may make (default 16). Once spent,
+   * the model gets one more turn with tools disabled to answer from what it
+   * has, so the run always ends with a reply.
+   */
   maxToolIterations?: number;
   /**
    * Context compaction ("prompt optimization"): summarize older messages once
@@ -82,7 +113,10 @@ export interface AgentExecutionConfig {
 export interface ContextCompactionConfig {
   /** Master switch. Defaults to enabled. */
   enabled?: boolean;
-  /** Compact once the estimated prompt token count exceeds this. */
+  /**
+   * Compact once the estimated prompt token count exceeds this. Defaults to 80%
+   * of `languageModel.contextWindow`.
+   */
   maxTokens?: number;
   /** Always keep at least this many of the most recent messages verbatim. */
   keepRecentMessages?: number;
@@ -100,6 +134,12 @@ export interface McpConfig {
    * there and routes the redirect back to {@link McpConnections.finishAuth}.
    */
   oauth?: McpOAuthConfig;
+  /**
+   * Close a user's MCP connections after this long unused (default 30
+   * minutes). Their OAuth tokens stay in the store, so they reconnect on the
+   * next run without authorizing again.
+   */
+  idleTimeoutMs?: number;
 }
 
 export interface McpOAuthConfig {
@@ -107,6 +147,35 @@ export interface McpOAuthConfig {
   redirectUrl: string;
   /** `client_name` sent during dynamic client registration. */
   clientName?: string;
+  /**
+   * Where client registrations and tokens persist. Defaults to memory, so a
+   * restart means authorizing again; see `createFileMcpOAuthStore`.
+   */
+  store?: McpOAuthStore;
+  /**
+   * Tells the model how the user authorizes a server in this app, e.g.
+   * `The user authorizes it with the "Authorize" button above the chat.`
+   * Shown in the system prompt and in the error a tool call returns while its
+   * server waits for authorization.
+   */
+  authorizationHint?: string;
+}
+
+/** What an MCP OAuth client persists for one server. */
+export interface McpOAuthCredentials {
+  clientInformation?: OAuthClientInformationMixed;
+  tokens?: OAuthTokens;
+  discoveryState?: OAuthDiscoveryState;
+}
+
+/**
+ * Persists {@link McpOAuthCredentials}. A key identifies one server (its id and
+ * URL), so changing a server's URL starts over instead of reusing credentials.
+ */
+export interface McpOAuthStore {
+  load(key: string): Promise<McpOAuthCredentials | undefined>;
+  /** `undefined` deletes the entry. */
+  save(key: string, credentials: McpOAuthCredentials | undefined): Promise<void>;
 }
 
 export type McpServerConfig =
@@ -150,4 +219,18 @@ export interface AgentConfig {
   languageModel?: LanguageModelConfig;
   execution?: AgentExecutionConfig;
   mcp?: McpConfig;
+  /**
+   * Where the agent logs. Defaults to the console with `debug` off. `debug`
+   * includes every full prompt and response, tool results included, so enable
+   * it only where those may be logged.
+   */
+  logger?: AgentLogger;
+}
+
+/** Structurally compatible with pino / Fastify's `request.log`. */
+export interface AgentLogger {
+  debug(message: string): void;
+  info(message: string): void;
+  warn(message: string): void;
+  error(message: string): void;
 }

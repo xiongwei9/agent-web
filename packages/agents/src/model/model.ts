@@ -3,13 +3,22 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 
 import type { LanguageModelConfig, LanguageModelProvider, OpenAIModelApi } from "../types.ts";
-import type { LanguageModel } from "./types.ts";
+import type { LanguageModel } from "../model/types.ts";
 
 const DEFAULT_MODEL_BY_PROVIDER: Record<LanguageModelProvider, string> = {
   openai: "gpt-4.1-mini",
   "openai-compatible": "gpt-4.1-mini",
   anthropic: "claude-sonnet-4-5",
   google: "gemini-2.5-flash",
+};
+
+// Conservative per-provider defaults: the providers' current default models
+// (see above), and 128k for unknown OpenAI-compatible gateways.
+const DEFAULT_CONTEXT_WINDOW_BY_PROVIDER: Record<LanguageModelProvider, number> = {
+  openai: 1_000_000,
+  "openai-compatible": 128_000,
+  anthropic: 200_000,
+  google: 1_000_000,
 };
 
 export interface ResolvedLanguageModelConfig {
@@ -19,6 +28,7 @@ export interface ResolvedLanguageModelConfig {
   headers?: Record<string, string>;
   model: string;
   provider: LanguageModelProvider;
+  contextWindow: number;
 }
 
 /**
@@ -73,6 +83,7 @@ export function resolveLanguageModelConfig(
     headers: config.headers,
     model: config.model ?? DEFAULT_MODEL_BY_PROVIDER[provider],
     provider,
+    contextWindow: config.contextWindow ?? DEFAULT_CONTEXT_WINDOW_BY_PROVIDER[provider],
   };
 }
 

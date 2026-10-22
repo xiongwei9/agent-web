@@ -1,5 +1,5 @@
 import { HttpAgent } from "@ag-ui/client";
-import type { Message } from "@ag-ui/core";
+import type { Message, RunAgentInput } from "@ag-ui/core";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import { formatA2uiUserMessage, type A2uiActionPayload } from "../lib/a2ui";
@@ -8,6 +8,16 @@ import { uid } from "../lib/ids";
 
 /** Endpoint the browser POSTs AG-UI runs to. Defaults to the Vite dev proxy. */
 const AGUI_URL = import.meta.env.VITE_AGUI_URL ?? "/agui";
+
+/**
+ * Sends the session cookie with every run, also to a server on another origin:
+ * it identifies the user, whose MCP connections and authorizations the run uses.
+ */
+class SessionHttpAgent extends HttpAgent {
+  protected requestInit(input: RunAgentInput): RequestInit {
+    return { ...super.requestInit(input), credentials: "include" };
+  }
+}
 
 export type ChatStatus = "idle" | "running";
 
@@ -48,7 +58,7 @@ export function useChat(): UseChat {
   const messagesRef = useRef<Message[]>([]);
 
   useEffect(() => {
-    const agent = new HttpAgent({
+    const agent = new SessionHttpAgent({
       url: AGUI_URL,
       threadId: uid("thread"),
     });
