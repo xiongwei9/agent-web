@@ -22,11 +22,10 @@ interface MessageItemProps {
   onHitlRespond: (toolCallId: string, content: string) => void;
 }
 
-const ROLE_LABEL: Record<string, string> = {
-  user: "You",
-  assistant: "Assistant",
-};
-
+/**
+ * Renders one message's content: its text plus any tool calls. The role label
+ * is rendered by {@link MessageList}, once per run of same-role messages.
+ */
 export function MessageItem({
   message,
   toolResults,
@@ -40,60 +39,59 @@ export function MessageItem({
   const isUser = role === "user";
 
   return (
-    <li className={`flex flex-col gap-1.5 ${isUser ? "items-end" : ""}`}>
-      <div
-        className={`text-xs font-semibold uppercase tracking-[0.04em] ${
-          isUser ? "text-accent" : "text-muted"
-        }`}
-      >
-        {ROLE_LABEL[role] ?? role}
-      </div>
-      <div
-        className={
-          isUser ? "max-w-full rounded-xl rounded-tr bg-user-bubble px-3.5 py-2.5" : "max-w-full"
+    <div
+      className={
+        isUser ? "max-w-full rounded-xl rounded-tr bg-user-bubble px-3.5 py-2.5" : "max-w-full"
+      }
+    >
+      {text ? (
+        role === "assistant" ? (
+          <Markdown content={text} />
+        ) : (
+          <p className="m-0 whitespace-pre-wrap wrap-break-word">{text}</p>
+        )
+      ) : null}
+      {toolCalls.map((call) => {
+        const surfaceMessages =
+          call.function.name === A2UI_RENDER_TOOL_NAME
+            ? parseA2uiMessages(call.function.arguments)
+            : undefined;
+        if (surfaceMessages) {
+          return <A2uiSurface key={call.id} messages={surfaceMessages} onAction={onA2uiAction} />;
         }
-      >
-        {text ? (
-          role === "assistant" ? (
-            <Markdown content={text} />
-          ) : (
-            <p className="m-0 whitespace-pre-wrap wrap-break-word">{text}</p>
-          )
-        ) : null}
-        {toolCalls.map((call) => {
-          const surfaceMessages =
-            call.function.name === A2UI_RENDER_TOOL_NAME
-              ? parseA2uiMessages(call.function.arguments)
-              : undefined;
-          if (surfaceMessages) {
-            return <A2uiSurface key={call.id} messages={surfaceMessages} onAction={onA2uiAction} />;
-          }
-          // A HITL call is the agent waiting on the user: render the prompt (or
-          // the answer it got) instead of the generic tool card.
-          const hitlRequest = parseHitlRequest(call.function.name, call.function.arguments);
-          if (hitlRequest) {
-            return (
-              <HitlPrompt
-                key={call.id}
-                request={hitlRequest}
-                result={toolResults.get(call.id)}
-                busy={isRunning}
-                onRespond={(content) => onHitlRespond(call.id, content)}
-              />
-            );
-          }
+        // A HITL call is the agent waiting on the user: render the prompt (or
+        // the answer it got) instead of the generic tool card.
+        const hitlRequest = parseHitlRequest(call.function.name, call.function.arguments);
+        if (hitlRequest) {
           return (
-            <ToolCall
+            <HitlPrompt
               key={call.id}
-              name={call.function.name}
-              args={call.function.arguments}
+              request={hitlRequest}
               result={toolResults.get(call.id)}
+              busy={isRunning}
+              onRespond={(content) => onHitlRespond(call.id, content)}
             />
           );
-        })}
-      </div>
-    </li>
+        }
+        return (
+          <ToolCall
+            key={call.id}
+            name={call.function.name}
+            args={call.function.arguments}
+            result={toolResults.get(call.id)}
+          />
+        );
+      })}
+    </div>
   );
+}
+
+/** Whether the message has anything to render (text or tool calls). */
+export function hasRenderableContent(message: Message): boolean {
+  if (extractText(message).trim().length > 0) {
+    return true;
+  }
+  return message.role === "assistant" && (message.toolCalls?.length ?? 0) > 0;
 }
 
 /**

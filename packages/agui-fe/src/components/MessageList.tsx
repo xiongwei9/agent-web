@@ -2,7 +2,12 @@ import type { Message } from "@ag-ui/core";
 import { useMemo } from "react";
 
 import type { A2uiActionPayload } from "../lib/a2ui";
-import { MessageItem } from "./MessageItem";
+import { hasRenderableContent, MessageItem } from "./MessageItem";
+
+const ROLE_LABEL: Record<string, string> = {
+  user: "You",
+  assistant: "Assistant",
+};
 
 interface MessageListProps {
   messages: Message[];
@@ -32,11 +37,29 @@ export function MessageList({
     return map;
   }, [messages]);
 
-  const visible = messages.filter(
-    (message) => message.role === "user" || message.role === "assistant",
-  );
+  // One reply from the agent spans several AG-UI messages — one per text block
+  // or tool-call batch, across loop iterations and HITL resumes. Group
+  // consecutive same-role messages so each reply gets a single label.
+  const groups = useMemo(() => {
+    const result: Message[][] = [];
+    for (const message of messages) {
+      if (message.role !== "user" && message.role !== "assistant") {
+        continue;
+      }
+      if (!hasRenderableContent(message)) {
+        continue;
+      }
+      const last = result.at(-1);
+      if (last && last[0]!.role === message.role && message.role === "assistant") {
+        last.push(message);
+      } else {
+        result.push([message]);
+      }
+    }
+    return result;
+  }, [messages]);
 
-  if (visible.length === 0) {
+  if (groups.length === 0) {
     return (
       <div className="px-4 py-16 text-center text-muted">
         <p className="m-0 mb-1.5 text-base text-ink">Start the conversation</p>
@@ -47,16 +70,31 @@ export function MessageList({
 
   return (
     <ul className="m-0 flex list-none flex-col gap-5 p-0">
-      {visible.map((message) => (
-        <MessageItem
-          key={message.id}
-          message={message}
-          toolResults={toolResults}
-          isRunning={isRunning}
-          onA2uiAction={onA2uiAction}
-          onHitlRespond={onHitlRespond}
-        />
-      ))}
+      {groups.map((group) => {
+        const role = group[0]!.role;
+        const isUser = role === "user";
+        return (
+          <li key={group[0]!.id} className={`flex flex-col gap-1.5 ${isUser ? "items-end" : ""}`}>
+            <div
+              className={`text-xs font-semibold uppercase tracking-[0.04em] ${
+                isUser ? "text-accent" : "text-muted"
+              }`}
+            >
+              {ROLE_LABEL[role] ?? role}
+            </div>
+            {group.map((message) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                toolResults={toolResults}
+                isRunning={isRunning}
+                onA2uiAction={onA2uiAction}
+                onHitlRespond={onHitlRespond}
+              />
+            ))}
+          </li>
+        );
+      })}
       {isRunning ? (
         <li className="flex gap-1.25 px-0.5 py-1.5" aria-live="polite">
           <span className="size-1.75 animate-blink rounded-full bg-muted" />
