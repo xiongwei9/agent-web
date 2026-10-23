@@ -26,6 +26,7 @@ export async function startApp(
 ) {
   const config = loadConfig({
     MODEL_API_KEY: "test-key",
+    MODEL_NAME: "test-model",
     PORT,
     SESSION_SECRET,
     MCP_SERVERS: mcpServers ? JSON.stringify(mcpServers) : undefined,

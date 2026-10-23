@@ -89,36 +89,36 @@ export const LANGUAGE_MODEL_PROVIDERS = [
 export type LanguageModelProvider = (typeof LANGUAGE_MODEL_PROVIDERS)[number];
 export type OpenAIModelApi = "responses" | "chat";
 
+/**
+ * The model to run. The app supplies every value, defaults included (the
+ * server's live in `agui-server/src/config.ts`).
+ */
 export interface LanguageModelConfig {
-  /**
-   * Selects the `@ai-sdk/*` package used to create the model. When unset, it is
-   * inferred from the config shape (`baseURL` → `openai-compatible`).
-   */
-  provider?: LanguageModelProvider;
-  /**
-   * OpenAI SDK API mode. Defaults to `responses` for official OpenAI and
-   * `chat` for OpenAI-compatible gateways.
-   */
+  /** Selects the `@ai-sdk/*` package used to create the model. */
+  provider: LanguageModelProvider;
+  /** OpenAI SDK API mode; required for `openai` and `openai-compatible`, ignored otherwise. */
   api?: OpenAIModelApi;
+  /** Required: creating the agent fails without it. */
   apiKey?: string;
+  /** Required for `openai-compatible`. */
   baseURL?: string;
   headers?: Record<string, string>;
+  /** Required: creating the agent fails without it. */
   model?: string;
   /**
    * The model's context window in tokens. Context compaction triggers at 80% of
-   * it unless `contextCompaction.maxTokens` is set. Defaults by provider: 1M for
-   * `openai` and `google`, 200k for `anthropic`, 128k for `openai-compatible`.
+   * it unless `contextCompaction.maxTokens` is set.
    */
-  contextWindow?: number;
+  contextWindow: number;
 }
 
 export interface AgentExecutionConfig {
   /**
-   * How many rounds of tool calls one run may make (default 16). Once spent,
-   * the model gets one more turn with tools disabled to answer from what it
-   * has, so the run always ends with a reply.
+   * How many rounds of tool calls one run may make. Once spent, the model gets
+   * one more turn with tools disabled to answer from what it has, so the run
+   * always ends with a reply.
    */
-  maxToolIterations?: number;
+  maxToolIterations: number;
   /**
    * Context compaction ("prompt optimization"): summarize older messages once
    * the prompt grows past a token threshold, keeping recent turns verbatim.
@@ -146,10 +146,10 @@ export interface ContextCompactionConfig {
  * access — only the tools.
  */
 export interface CodeModeConfig {
-  /** Master switch. Defaults to disabled: every tool is offered directly. */
-  enabled?: boolean;
-  /** Wall-clock limit for one `execute_code` call, its tool calls included (default 30s). */
-  timeoutMs?: number;
+  /** Master switch. Off, every tool is offered directly. */
+  enabled: boolean;
+  /** Wall-clock limit for one `execute_code` call, its tool calls included. */
+  timeoutMs: number;
   /**
    * Type-check the code against the tools' declarations before running it
    * (default true), so a call that can't work fails before any tool runs.
@@ -157,13 +157,13 @@ export interface CodeModeConfig {
   typeCheck?: boolean;
   /**
    * How the model learns the tools' signatures:
-   * - `auto` (default) — `inline` while their declarations are short, else `search`
+   * - `auto` — `inline` while their declarations are short, else `search`
    * - `inline` — every declaration is in the `execute_code` description
    * - `search` — the description only names the tools; the model looks up the
    *   declarations it needs with the `search_tools` tool, so the prompt stays
    *   small however many MCP tools there are
    */
-  toolDiscovery?: "auto" | "inline" | "search";
+  toolDiscovery: "auto" | "inline" | "search";
 }
 
 export interface McpConfig {
@@ -274,8 +274,9 @@ export interface AgentConfig {
    * `src/system-prompt.md`; skills, A2UI, and HITL guidance are appended to it.
    */
   systemPrompt?: string;
-  languageModel?: LanguageModelConfig;
-  execution?: AgentExecutionConfig;
+  languageModel: LanguageModelConfig;
+  execution: AgentExecutionConfig;
+  /** Omitted, code mode is off. */
   codeMode?: CodeModeConfig;
   mcp?: McpConfig;
   skills?: SkillsConfig;

@@ -45,14 +45,14 @@ const DEFAULT_SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url)
  * Throws at construction when `config.languageModel.apiKey` is missing, so a
  * misconfigured server fails at startup rather than on the first request.
  */
-export function createAgent(config: AgentConfig = {}): Agent {
-  const modelConfig = resolveLanguageModelConfig(config.languageModel ?? {});
+export function createAgent(config: AgentConfig): Agent {
+  const modelConfig = resolveLanguageModelConfig(config.languageModel);
   const model = createLanguageModel(modelConfig);
   const logger = config.logger ?? consoleLogger;
   const instructions = config.systemPrompt ?? readFileSync(DEFAULT_SYSTEM_PROMPT_URL, "utf8");
   const execution = config.execution;
   const compaction = resolveCompactionOptions(
-    execution?.contextCompaction,
+    execution.contextCompaction,
     modelConfig.contextWindow,
   );
   const compactionCache = new CompactionCache();
@@ -99,7 +99,7 @@ export function createAgent(config: AgentConfig = {}): Agent {
             serverTools: tools.serverTools,
             frontendTools: tools.frontendTools,
             expandUserText: tools.expandUserText,
-            maxToolIterations: execution?.maxToolIterations,
+            maxToolIterations: execution.maxToolIterations,
             compaction,
             compactionCache,
             logger,

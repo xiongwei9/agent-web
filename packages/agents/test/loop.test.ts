@@ -7,7 +7,7 @@ import { lastValueFrom, toArray } from "rxjs";
 import { runAgentLoop, type RunOptions } from "../src/loop/loop.ts";
 import type { ServerTool } from "../src/tools/types.ts";
 import type { AgentLogger } from "../src/types.ts";
-import { scriptedModel, textTurn, toolCallTurn } from "./helpers.ts";
+import { MAX_TOOL_ITERATIONS, scriptedModel, textTurn, toolCallTurn } from "./helpers.ts";
 
 type AnyEvent = BaseEvent & Record<string, unknown>;
 
@@ -48,6 +48,7 @@ async function run(options: Partial<RunOptions> & Pick<RunOptions, "model">) {
     persona: undefined,
     serverTools: new Map(),
     ...options,
+    maxToolIterations: options.maxToolIterations ?? MAX_TOOL_ITERATIONS,
   });
   return (await lastValueFrom(events.pipe(toArray()))) as AnyEvent[];
 }
@@ -154,6 +155,7 @@ describe("runAgentLoop abort", () => {
       persona: undefined,
       model,
       serverTools: new Map([[tool.name, tool]]),
+      maxToolIterations: MAX_TOOL_ITERATIONS,
     }).subscribe();
 
     while (!received) {

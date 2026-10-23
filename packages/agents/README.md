@@ -42,18 +42,22 @@ Adding a capability means writing one and listing it in `agent.ts`.
 
 This package does not read environment variables directly. Applications build
 an `AgentConfig` object and pass it to `createAgent(config)`, which returns
-`{ run, mcp }` and throws if `languageModel.apiKey` is missing. `run` turns a
+`{ run, mcp, skills }` and throws if `languageModel.apiKey` is missing. The
+package has no defaults for the settings an app configures (the model, its
+context window and API mode, `maxToolIterations`, code mode's timeout and tool
+discovery): the app passes every value. The server's defaults are in
+`agui-server/src/config.ts`. `run` turns a
 `RunAgentInput` into an AG-UI event stream; `mcp` exposes the MCP servers'
 status and OAuth flow (undefined without MCP servers).
 
 `AgentConfig.languageModel.provider` supports `openai`, `openai-compatible`,
-`anthropic`, and `google` (see `src/model/model.ts`). `contextWindow` is the
-model's window in tokens. It defaults by provider: 1M for `openai`/`google`,
-200k for `anthropic`, 128k for `openai-compatible`.
+`anthropic`, and `google` (see `src/model/model.ts`); `api` (`responses` or
+`chat`) is required for the two OpenAI providers. `contextWindow` is the
+model's window in tokens.
 
 `execution` tunes the loop:
 
-- `maxToolIterations` (default 16) caps the rounds of tool calls. Once spent,
+- `maxToolIterations` caps the rounds of tool calls. Once spent,
   the model gets one last turn with tools disabled, so a run always ends with a
   reply.
 - `contextCompaction` summarizes older messages once the prompt passes
@@ -90,10 +94,10 @@ and filters their results, and returns only what it needs.
   `execute_code` description; `search` lists only the tool names and adds a
   `search_tools` tool that returns the declarations the model asks for, by
   keywords or names, so the prompt stays small however many MCP tools there
-  are. `auto` (default) inlines up to ~8k characters of declarations.
+  are. `auto` inlines up to ~8k characters of declarations.
 - Sandbox: a fresh QuickJS (WebAssembly) runtime per call, with no network,
   file system, timers, or modules, a 64 MB memory cap, and
-  `codeMode.timeoutMs` (default 30s) for the whole call, tool calls included.
+  `codeMode.timeoutMs` for the whole call, tool calls included.
 
 Skills tools, client tools (A2UI, HITL, request-declared tools) and tools that
 require approval stay direct: they suspend the run or steer the model rather

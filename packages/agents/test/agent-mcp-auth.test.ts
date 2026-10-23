@@ -9,7 +9,7 @@ import { lastValueFrom, toArray } from "rxjs";
 
 import { createAgent } from "../src/agent.ts";
 import type { Agent } from "../src/types.ts";
-import { submitConsent } from "./helpers.ts";
+import { MAX_TOOL_ITERATIONS, submitConsent } from "./helpers.ts";
 
 const HINT = 'The user authorizes it with the "Authorize" button above the chat.';
 
@@ -90,7 +90,9 @@ describe("createAgent with an MCP server awaiting authorization", () => {
         apiKey: "test-key",
         baseURL: model.baseURL,
         model: "fake",
+        contextWindow: 128_000,
       },
+      execution: { maxToolIterations: MAX_TOOL_ITERATIONS },
       mcp: {
         servers: { demo: { url: demo.url } },
         oauth: { redirectUrl: "http://127.0.0.1:9/callback", authorizationHint: HINT },

@@ -9,7 +9,6 @@ import { runInSandbox, type SandboxFunction } from "./sandbox.ts";
 export const EXECUTE_CODE_TOOL = "execute_code";
 export const SEARCH_TOOLS_TOOL = "search_tools";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 100_000;
 /** `auto` discovery inlines the declarations up to this size (~2k tokens). */
 const MAX_INLINE_DECLARATION_CHARS = 8_000;
@@ -51,7 +50,7 @@ export function withCodeMode(tools: RunTools, config: CodeModeConfig): RunTools 
   }
 
   const api = toolApi(wrapped);
-  const discovery = config.toolDiscovery ?? "auto";
+  const discovery = config.toolDiscovery;
   const inline =
     discovery === "inline" ||
     (discovery === "auto" && api.source.length <= MAX_INLINE_DECLARATION_CHARS);
@@ -105,7 +104,7 @@ function systemPrompt(inline: boolean, gated: ServerTool[]): string {
 }
 
 function executeCodeTool(api: ToolApi, inline: boolean, config: CodeModeConfig): ServerTool {
-  const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = config.timeoutMs;
   const typeCheck = config.typeCheck ?? true;
   const catalog = inline
     ? ["", "```ts", api.source, "```"]

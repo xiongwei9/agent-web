@@ -6,6 +6,7 @@ import {
   LANGUAGE_MODEL_PROVIDERS,
   type AgentConfig,
   type CodeModeConfig,
+  type LanguageModelConfig,
   type LanguageModelProvider,
   type McpConfig,
   type McpOAuthConfig,
@@ -28,6 +29,16 @@ const DEFAULT_SESSION_SECRET_PATH = ".session-secret";
 
 /** The repo's `packages/skills/`, from both `src/` and the built `dist/`. */
 const DEFAULT_SKILLS_DIR = fileURLToPath(new URL("../../skills", import.meta.url));
+
+const DEFAULT_MAX_TOOL_ITERATIONS = 16;
+const DEFAULT_CODE_MODE_TIMEOUT_MS = 30_000;
+const DEFAULT_CODE_MODE_TOOL_DISCOVERY = "auto";
+
+/** `MODEL_CONTEXT_WINDOW` when unset, in tokens. */
+const DEFAULT_CONTEXT_WINDOW = 1_000_000;
+
+/** `MODEL_API` when unset; only the OpenAI providers use it. */
+const DEFAULT_MODEL_API: OpenAIModelApi = "responses";
 
 export interface AppConfig {
   agent: AgentConfig;
@@ -53,21 +64,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     logLevel: emptyToUndefined(env.LOG_LEVEL) ?? DEFAULT_LOG_LEVEL,
     agent: {
       systemPrompt: emptyToUndefined(env.SYSTEM_PROMPT),
-      languageModel: {
-        provider: readLanguageModelProvider(env.MODEL_PROVIDER),
-        api: readLanguageModelApi(env.MODEL_API),
-        apiKey: emptyToUndefined(env.MODEL_API_KEY),
-        baseURL: emptyToUndefined(env.MODEL_BASE_URL),
-        model: emptyToUndefined(env.MODEL_NAME),
-        contextWindow: readOptionalPositiveInteger(env.MODEL_CONTEXT_WINDOW),
-        headers: readModelHeaders(env.MODEL_HEADERS),
-      },
+      languageModel: readLanguageModel(env),
       execution: {
-        maxToolIterations: readOptionalPositiveInteger(env.AGENT_MAX_TOOL_ITERATIONS),
+        maxToolIterations:
+          readOptionalPositiveInteger(env.AGENT_MAX_TOOL_ITERATIONS) ?? DEFAULT_MAX_TOOL_ITERATIONS,
       },
       codeMode: {
         enabled: readBoolean(env.AGENT_CODE_MODE, "AGENT_CODE_MODE"),
-        timeoutMs: readOptionalPositiveInteger(env.AGENT_CODE_MODE_TIMEOUT_MS),
+        timeoutMs:
+          readOptionalPositiveInteger(env.AGENT_CODE_MODE_TIMEOUT_MS) ??
+          DEFAULT_CODE_MODE_TIMEOUT_MS,
         toolDiscovery: readToolDiscovery(env.AGENT_CODE_MODE_TOOL_DISCOVERY),
       },
       mcp: readMcpConfig(env.MCP_SERVERS, {
@@ -99,6 +105,26 @@ function readSkillsDirs(value: string | undefined): string[] {
     .map((dir) => dir.trim())
     .filter(Boolean)
     .map((dir) => resolve(dir));
+}
+
+/**
+ * The model settings, unset ones defaulted. Without
+ * `MODEL_PROVIDER`, a `MODEL_BASE_URL` means an OpenAI-compatible gateway and
+ * no base URL means OpenAI.
+ */
+function readLanguageModel(env: NodeJS.ProcessEnv): LanguageModelConfig {
+  const baseURL = emptyToUndefined(env.MODEL_BASE_URL);
+  const provider =
+    readLanguageModelProvider(env.MODEL_PROVIDER) ?? (baseURL ? "openai-compatible" : "openai");
+  return {
+    provider,
+    api: readLanguageModelApi(env.MODEL_API) ?? DEFAULT_MODEL_API,
+    apiKey: emptyToUndefined(env.MODEL_API_KEY),
+    baseURL,
+    model: emptyToUndefined(env.MODEL_NAME),
+    contextWindow: readOptionalPositiveInteger(env.MODEL_CONTEXT_WINDOW) ?? DEFAULT_CONTEXT_WINDOW,
+    headers: readModelHeaders(env.MODEL_HEADERS),
+  };
 }
 
 function readLanguageModelProvider(value: string | undefined): LanguageModelProvider | undefined {
@@ -311,7 +337,10 @@ function readBoolean(value: string | undefined, name: string): boolean {
  */
 function readToolDiscovery(value: string | undefined): CodeModeConfig["toolDiscovery"] {
   const normalized = emptyToUndefined(value)?.trim().toLowerCase();
-  if (normalized === undefined || normalized === "auto") {
+  if (normalized === undefined) {
+    return DEFAULT_CODE_MODE_TOOL_DISCOVERY;
+  }
+  if (normalized === "auto") {
     return "auto";
   }
   if (TRUE_VALUES.includes(normalized)) {

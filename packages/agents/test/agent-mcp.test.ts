@@ -12,7 +12,13 @@ import { builtinCapability } from "../src/tools/builtin.ts";
 import { resolveRunTools } from "../src/tools/toolset.ts";
 import type { LanguageModel, ModelMessage } from "../src/model/types.ts";
 import type { McpConfig } from "../src/types.ts";
-import { scriptedModel, textTurn, toolCallTurn, unreachableMcpUrl } from "./helpers.ts";
+import {
+  MAX_TOOL_ITERATIONS,
+  scriptedModel,
+  textTurn,
+  toolCallTurn,
+  unreachableMcpUrl,
+} from "./helpers.ts";
 
 type AnyEvent = BaseEvent & Record<string, unknown>;
 
@@ -36,6 +42,7 @@ async function runWithMcp(
     persona: undefined,
     model,
     serverTools: tools.serverTools,
+    maxToolIterations: MAX_TOOL_ITERATIONS,
   });
   return (await lastValueFrom(events.pipe(toArray()))) as AnyEvent[];
 }

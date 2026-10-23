@@ -26,7 +26,7 @@ server 自身不包含 agent logic。它会使用已加载的 config 调用 [`cr
 
 ### Agent runtime
 
-[`packages/agents/src/loop/`](packages/agents/src/loop/) 自行实现 agentic loop：流式调用 model → 发出 `TEXT_MESSAGE_*` / `TOOL_CALL_*` events → 执行 server-side tools 并继续循环，遇到 client-side tool（A2UI、HITL 或 request 声明的 tools）时挂起 run，等待 client 恢复。设置 `MODEL_API_KEY` 即可启用；未配置时 server 启动失败。
+[`packages/agents/src/loop/`](packages/agents/src/loop/) 自行实现 agentic loop：流式调用 model → 发出 `TEXT_MESSAGE_*` / `TOOL_CALL_*` events → 执行 server-side tools 并继续循环，遇到 client-side tool（A2UI、HITL 或 request 声明的 tools）时挂起 run，等待 client 恢复。设置 `MODEL_API_KEY` 和 `MODEL_NAME` 即可启用；未配置时 server 启动失败。
 
 ### System prompt、MCP 与 Skills
 
@@ -131,7 +131,7 @@ curl -N http://localhost:3000/agui \
 
 ## 配置
 
-所有配置都由 [`loadConfig`](packages/agui-server/src/config.ts) 从环境变量读取。
+所有配置都由 [`loadConfig`](packages/agui-server/src/config.ts) 从环境变量读取，默认值也都定义在这里；[`.env.example`](packages/agui-server/.env.example) 列出了每个变量及其默认值。
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -140,12 +140,13 @@ curl -N http://localhost:3000/agui \
 | `LOG_LEVEL` | `info` | Fastify log level。 |
 | `SYSTEM_PROMPT` | — | 覆盖默认 system prompt（`packages/agents/src/system-prompt.md`）。 |
 | `SKILLS_DIRS` | `packages/skills` | 逗号分隔的 skill 目录，靠前的目录在重名时优先；`off` 表示不加载 skills。 |
-| `MODEL_PROVIDER` | — | `openai` \| `openai-compatible` \| `anthropic` \| `google`。 |
-| `MODEL_API` | — | OpenAI SDK mode：`responses` 或 `chat`。 |
-| `MODEL_API_KEY` | — | language model 的 API key。 |
+| `MODEL_PROVIDER` | 设了 `MODEL_BASE_URL` 时为 `openai-compatible`，否则 `openai` | `openai` \| `openai-compatible` \| `anthropic` \| `google`。 |
+| `MODEL_API` | `responses` | OpenAI SDK mode：`responses` 或 `chat`，仅 OpenAI providers 使用；不支持 Responses API 的 gateway 需设为 `chat`。 |
+| `MODEL_API_KEY` | —（必填） | language model 的 API key。 |
+| `MODEL_CONTEXT_WINDOW` | `1000000` | model 的 context window（tokens），超过 80% 时压缩上下文。 |
 | `MODEL_BASE_URL` | — | 覆盖 base URL（例如 OpenAI-compatible gateway）。 |
-| `MODEL_NAME` | — | Model id。 |
-| `AGENT_MAX_TOOL_ITERATIONS` | — | 每次 run 的 tool-call iterations 上限。 |
+| `MODEL_NAME` | —（必填） | Model id。 |
+| `AGENT_MAX_TOOL_ITERATIONS` | `16` | 每次 run 的 tool-call iterations 上限。 |
 | `MCP_SERVERS` | — | 作为 server-side tools 暴露的 MCP servers 的 JSON map。 |
 
 ## 开发

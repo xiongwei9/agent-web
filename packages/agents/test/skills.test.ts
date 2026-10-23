@@ -15,7 +15,7 @@ import { loadSkills } from "../src/skills/loader.ts";
 import { SkillsToolset } from "../src/skills/toolset.ts";
 import { resolveRunTools } from "../src/tools/toolset.ts";
 import type { AgentLogger } from "../src/types.ts";
-import { scriptedModel, textTurn, toolCallTurn } from "./helpers.ts";
+import { MAX_TOOL_ITERATIONS, scriptedModel, textTurn, toolCallTurn } from "./helpers.ts";
 
 type AnyEvent = BaseEvent & Record<string, unknown>;
 
@@ -212,6 +212,7 @@ describe("skills across runs", () => {
         persona: tools.systemPrompt,
         model,
         serverTools: tools.serverTools,
+        maxToolIterations: MAX_TOOL_ITERATIONS,
       }).pipe(toArray()),
     )) as AnyEvent[];
 
@@ -371,6 +372,7 @@ describe("/skill-name commands", () => {
         model,
         serverTools: tools.serverTools,
         expandUserText: tools.expandUserText,
+        maxToolIterations: MAX_TOOL_ITERATIONS,
       }).pipe(toArray()),
     );
 

@@ -21,7 +21,13 @@ import { SkillsToolset } from "../src/skills/toolset.ts";
 import { builtinCapability } from "../src/tools/builtin.ts";
 import { resolveRunTools, type RunTools } from "../src/tools/toolset.ts";
 import type { ServerTool } from "../src/tools/types.ts";
-import { scriptedModel, textTurn, toolCallTurn } from "./helpers.ts";
+import {
+  CODE_MODE,
+  MAX_TOOL_ITERATIONS,
+  scriptedModel,
+  textTurn,
+  toolCallTurn,
+} from "./helpers.ts";
 
 type AnyEvent = BaseEvent & Record<string, unknown>;
 
@@ -216,7 +222,7 @@ describe("withCodeMode", () => {
   test("replaces the visible server tools with execute_code and keeps hidden ones", async () => {
     const tools = withCodeMode(
       runTools([tool("get_server_time", () => "noon"), tool("Skill", () => "instructions", true)]),
-      {},
+      CODE_MODE,
     );
     assert.deepEqual([...tools.serverTools.keys()].sort(), ["Skill", EXECUTE_CODE_TOOL]);
     assert.match(tools.systemPrompt ?? "", /^base\n\n## Code mode/);
@@ -231,7 +237,7 @@ describe("withCodeMode", () => {
   });
 
   test("returns the error, with the logs so far, when the code fails", async () => {
-    const tools = withCodeMode(runTools([tool("get_server_time", () => "noon")]), {});
+    const tools = withCodeMode(runTools([tool("get_server_time", () => "noon")]), CODE_MODE);
     const output = await tools.serverTools
       .get(EXECUTE_CODE_TOOL)!
       .execute({ code: 'console.log("before"); throw new Error("nope");' });
@@ -240,7 +246,7 @@ describe("withCodeMode", () => {
 
   test("leaves the tools alone when there is nothing to wrap", () => {
     const original = runTools([tool("Skill", () => "", true)]);
-    assert.equal(withCodeMode(original, {}), original);
+    assert.equal(withCodeMode(original, CODE_MODE), original);
   });
 
   test("keeps the skills tools direct", async () => {
@@ -248,7 +254,7 @@ describe("withCodeMode", () => {
       dirs: [fileURLToPath(new URL("../../skills", import.meta.url))],
     });
     assert.ok(skills.size > 0);
-    const tools = withCodeMode(await resolveRunTools([builtinCapability(), skills]), {});
+    const tools = withCodeMode(await resolveRunTools([builtinCapability(), skills]), CODE_MODE);
     assert.ok(tools.serverTools.has(EXECUTE_CODE_TOOL));
     assert.ok(!tools.serverTools.has("get_server_time"));
     assert.ok(tools.serverTools.has("Skill"));
@@ -274,7 +280,7 @@ describe("withCodeMode", () => {
           },
         },
       ]),
-      {},
+      CODE_MODE,
     );
     const executeCode = tools.serverTools.get(EXECUTE_CODE_TOOL)!;
 
@@ -307,6 +313,7 @@ describe("withCodeMode", () => {
 
   test("with typeCheck off, the code runs as written", async () => {
     const tools = withCodeMode(runTools([tool("get_server_time", () => "noon")]), {
+      ...CODE_MODE,
       typeCheck: false,
     });
     const output = await tools.serverTools
@@ -322,7 +329,7 @@ describe("withCodeMode", () => {
         { ...tool("demo__echo", () => ""), description: "Echo text back." },
         { ...tool("get_server_time", () => ""), description: "Get the server's time." },
       ]),
-      { toolDiscovery: "search" },
+      { ...CODE_MODE, toolDiscovery: "search" },
     );
     assert.deepEqual(
       [...tools.serverTools.keys()].sort(),
@@ -361,10 +368,14 @@ describe("withCodeMode", () => {
       ...tool(`tool_${index}`, () => ""),
       description: "A tool with a fairly long description that adds up across many tools.",
     }));
-    assert.ok(!withCodeMode(runTools(many.slice(0, 3)), {}).serverTools.has(SEARCH_TOOLS_TOOL));
-    assert.ok(withCodeMode(runTools(many), {}).serverTools.has(SEARCH_TOOLS_TOOL));
     assert.ok(
-      !withCodeMode(runTools(many), { toolDiscovery: "inline" }).serverTools.has(SEARCH_TOOLS_TOOL),
+      !withCodeMode(runTools(many.slice(0, 3)), CODE_MODE).serverTools.has(SEARCH_TOOLS_TOOL),
+    );
+    assert.ok(withCodeMode(runTools(many), CODE_MODE).serverTools.has(SEARCH_TOOLS_TOOL));
+    assert.ok(
+      !withCodeMode(runTools(many), { ...CODE_MODE, toolDiscovery: "inline" }).serverTools.has(
+        SEARCH_TOOLS_TOOL,
+      ),
     );
   });
 
@@ -399,7 +410,7 @@ describe("agent loop in code mode", () => {
     t.after(() => registry.close());
     const tools = withCodeMode(
       await resolveRunTools([builtinCapability(), mcpCapability(registry)]),
-      {},
+      CODE_MODE,
     );
 
     const code = `
@@ -421,6 +432,7 @@ describe("agent loop in code mode", () => {
         persona: tools.systemPrompt,
         model,
         serverTools: tools.serverTools,
+        maxToolIterations: MAX_TOOL_ITERATIONS,
       }).pipe(toArray()),
     )) as AnyEvent[];
 
@@ -441,7 +453,7 @@ describe("agent loop in code mode", () => {
   test("MCP tools with an output schema resolve to typed structured content; tool errors throw", async (t) => {
     const registry = createMcpToolRegistry({ servers: { demo: { url: server.url } } })!;
     t.after(() => registry.close());
-    const tools = withCodeMode(await resolveRunTools([mcpCapability(registry)]), {});
+    const tools = withCodeMode(await resolveRunTools([mcpCapability(registry)]), CODE_MODE);
     const executeCode = tools.serverTools.get(EXECUTE_CODE_TOOL)!;
     assert.match(
       executeCode.description,

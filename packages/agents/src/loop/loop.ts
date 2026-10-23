@@ -18,8 +18,6 @@ import {
 import type { ModelCallOptions, ModelMessage, LanguageModel } from "../model/types.ts";
 import type { FrontendTool, ServerTool } from "../tools/types.ts";
 
-const DEFAULT_MAX_TOOL_ITERATIONS = 16;
-
 /** Context window assumed when a caller passes no resolved compaction options. */
 const FALLBACK_CONTEXT_WINDOW = 128_000;
 
@@ -40,7 +38,7 @@ export interface RunOptions {
   /** Rewrites user messages' text for the model (e.g. `/skill-name` commands). */
   expandUserText?: (text: string) => string;
   /** Rounds of tool calls allowed before a final, tools-disabled turn. */
-  maxToolIterations?: number;
+  maxToolIterations: number;
   temperature?: number;
   /** Resolved context compaction settings. Omit for defaults (128k window). */
   compaction?: CompactionOptions;
@@ -128,7 +126,7 @@ async function drive(
     options.clientTools,
     [...frontendTools.values()].map((tool) => tool.def),
   );
-  const maxToolRounds = options.maxToolIterations ?? DEFAULT_MAX_TOOL_ITERATIONS;
+  const maxToolRounds = options.maxToolIterations;
   const compaction =
     options.compaction ?? resolveCompactionOptions(undefined, FALLBACK_CONTEXT_WINDOW);
   const logger = options.logger ?? consoleLogger;

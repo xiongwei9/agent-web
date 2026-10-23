@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 import { startDemoHttpServer } from "@ai-chat/mcp-server-demo";
 
 import type { LanguageModel, ModelCallOptions, ModelStreamPart } from "../src/model/types.ts";
+import type { CodeModeConfig } from "../src/types.ts";
+
+/** The agent has no defaults of its own (the app supplies them); these stand in for the server's. */
+export const MAX_TOOL_ITERATIONS = 16;
+export const CODE_MODE: CodeModeConfig = {
+  enabled: true,
+  timeoutMs: 30_000,
+  toolDiscovery: "auto",
+};
 
 /**
  * Plays the user's part of an OAuth flow against the demo server: opens the

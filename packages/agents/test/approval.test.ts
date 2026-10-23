@@ -13,7 +13,13 @@ import type { ModelCallOptions } from "../src/model/types.ts";
 import { buildModelToolDefs } from "../src/tools/toolset.ts";
 import type { ServerTool } from "../src/tools/types.ts";
 import type { McpToolApproval } from "../src/types.ts";
-import { scriptedModel, textTurn, toolCallTurn } from "./helpers.ts";
+import {
+  CODE_MODE,
+  MAX_TOOL_ITERATIONS,
+  scriptedModel,
+  textTurn,
+  toolCallTurn,
+} from "./helpers.ts";
 
 type AnyEvent = BaseEvent & Record<string, unknown>;
 
@@ -48,6 +54,7 @@ async function run(
     context: [],
     persona: undefined,
     ...options,
+    maxToolIterations: options.maxToolIterations ?? MAX_TOOL_ITERATIONS,
   });
   return (await lastValueFrom(events.pipe(toArray()))) as AnyEvent[];
 }
@@ -307,7 +314,7 @@ describe("approval-gated server tools", () => {
         frontendTools: new Map(),
         expandUserText: (text) => text,
       },
-      { enabled: true },
+      CODE_MODE,
     );
 
     assert.deepEqual([...tools.serverTools.keys()].sort(), [EXECUTE_CODE_TOOL, "delete"].sort());
