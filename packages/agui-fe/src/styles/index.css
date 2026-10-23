@@ -20,6 +20,14 @@
 
   --animate-blink: blink 1.4s infinite both;
   --animate-pulse-soft: pulse-soft 1.2s ease-in-out infinite;
+  --animate-dock-in: dock-in 180ms ease-out;
+}
+
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 @keyframes blink {

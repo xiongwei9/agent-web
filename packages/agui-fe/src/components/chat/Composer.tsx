@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 
-import type { SkillInfo } from "../hooks/useSkills";
+import type { SkillInfo } from "../../hooks/useSkills";
+import { ArrowUp, Square } from "lucide-react";
 
 interface ComposerProps {
   onSend: (text: string) => void;
@@ -80,13 +81,10 @@ export function Composer({ onSend, onStop, isRunning, skills }: ComposerProps) {
   };
 
   return (
-    <form
-      className="relative flex items-end gap-2.5 border-t border-border bg-canvas px-5 pb-5.5 pt-3.5"
-      onSubmit={handleSubmit}
-    >
+    <form className="relative px-5 pb-5 pt-2" onSubmit={handleSubmit}>
       {suggestions.length > 0 ? (
         <ul
-          className="absolute inset-x-5 bottom-full m-0 mb-1.5 max-h-60 list-none overflow-y-auto rounded-xl border border-border bg-canvas p-1 shadow-lg"
+          className="absolute inset-x-5 bottom-full m-0 max-h-60 list-none overflow-y-auto rounded-xl border border-border bg-canvas p-1 shadow-lg"
           role="listbox"
           aria-label="Skills"
         >
@@ -109,36 +107,41 @@ export function Composer({ onSend, onStop, isRunning, skills }: ComposerProps) {
           ))}
         </ul>
       ) : null}
-      <textarea
-        ref={textareaRef}
-        className="max-h-50 flex-1 resize-none rounded-xl border border-border bg-input px-3.5 py-3 font-[inherit] leading-normal text-ink field-sizing-content focus:border-accent focus:outline-none"
-        placeholder={
-          skills.length > 0
-            ? "Send a message, or / for skills…  (Enter to send, Shift+Enter for newline)"
-            : "Send a message…  (Enter to send, Shift+Enter for newline)"
-        }
-        value={value}
-        rows={1}
-        onChange={(event) => change(event.target.value)}
-        onKeyDown={handleKeyDown}
-      />
-      {isRunning ? (
-        <button
-          type="button"
-          className="cursor-pointer whitespace-nowrap rounded-xl border border-danger bg-transparent px-5 py-3 text-sm font-semibold text-danger hover:bg-danger/10"
-          onClick={onStop}
-        >
-          Stop
-        </button>
-      ) : (
-        <button
-          type="submit"
-          className="cursor-pointer whitespace-nowrap rounded-xl border-0 bg-accent-strong px-5 py-3 text-sm font-semibold text-white enabled:hover:bg-accent disabled:cursor-default disabled:opacity-50"
-          disabled={!value.trim()}
-        >
-          Send
-        </button>
-      )}
+      <div className="rounded-2xl border border-border bg-input shadow-sm transition-colors focus-within:border-accent">
+        <textarea
+          ref={textareaRef}
+          className="block max-h-50 w-full resize-none border-0 bg-transparent px-4 pb-1 pt-3 font-[inherit] leading-normal text-ink field-sizing-content placeholder:text-muted focus:outline-none"
+          placeholder={skills.length > 0 ? "Send a message, or / for skills…" : "Send a message…"}
+          value={value}
+          rows={1}
+          onChange={(event) => change(event.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <div className="flex items-center gap-3 pb-2.5 pl-4 pr-2.5">
+          <span className="flex-1 text-xs text-muted">Enter to send · Shift+Enter for newline</span>
+          {isRunning ? (
+            <button
+              type="button"
+              className="grid size-8 cursor-pointer place-items-center rounded-full border border-border bg-canvas text-ink transition-colors hover:border-danger hover:text-danger"
+              onClick={onStop}
+              aria-label="Stop"
+              title="Stop"
+            >
+              <Square className="size-3 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="grid size-8 cursor-pointer place-items-center rounded-full border-0 bg-accent-strong text-white transition-colors enabled:hover:bg-accent disabled:cursor-default disabled:bg-border disabled:text-muted"
+              disabled={!value.trim()}
+              aria-label="Send"
+              title="Send"
+            >
+              <ArrowUp className="size-4" />
+            </button>
+          )}
+        </div>
+      </div>
     </form>
   );
 }

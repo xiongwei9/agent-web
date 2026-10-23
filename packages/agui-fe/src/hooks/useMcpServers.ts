@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { apiUrl } from "../lib/api";
+
 /** Mirrors `McpServerInfo` from `@ai-chat/agents` (served by `GET /mcp/servers`). */
 export interface McpServerInfo {
   id: string;
@@ -9,9 +11,7 @@ export interface McpServerInfo {
   error?: string;
 }
 
-const AGUI_URL = import.meta.env.VITE_AGUI_URL ?? "/agui";
-// Resolved against the AG-UI endpoint, so a path prefix or remote origin carries over.
-const MCP_SERVERS_URL = new URL("mcp/servers", new URL(AGUI_URL, window.location.href)).href;
+const MCP_SERVERS_URL = apiUrl("mcp/servers");
 const POLL_INTERVAL_MS = 3_000;
 
 /**

@@ -35,17 +35,18 @@ the resulting `Message[]` and calls `send`/`stop`/`reset`.
 | File | Responsibility |
 | --- | --- |
 | [`hooks/useChat.ts`](src/hooks/useChat.ts) | Owns one `HttpAgent`, mirrors its `messages`/status/error into React state, exposes `send`/`stop`/`reset` plus the resume paths (`respondToToolCall`, `submitA2uiAction`). Recreates the agent (fresh thread) when `reset()` is called. |
-| [`components/Chat.tsx`](src/components/Chat.tsx) | Wires the hook to the view: autoscroll, status bar, error banner. |
-| [`components/MessageList.tsx`](src/components/MessageList.tsx) | Renders user/assistant messages; attaches `tool` result messages to their originating tool call by `toolCallId`. |
-| [`components/MessageItem.tsx`](src/components/MessageItem.tsx) / [`ToolCall.tsx`](src/components/ToolCall.tsx) / [`Markdown.tsx`](src/components/Markdown.tsx) | A single message, a collapsible tool-call card, and Markdown rendering. |
-| [`components/HitlPrompt.tsx`](src/components/HitlPrompt.tsx) / [`lib/hitl.ts`](src/lib/hitl.ts) | The Human-in-the-Loop card — a question or an approval gate — and the contract for parsing the call and formatting the answer. |
-| [`components/Composer.tsx`](src/components/Composer.tsx) | Input box; Enter sends, Shift+Enter newlines, Stop aborts a run. |
+| [`components/chat/`](src/components/chat) | The page: [`Chat.tsx`](src/components/chat/Chat.tsx) wires the hook to the view (header, autoscroll, error banner), [`Composer.tsx`](src/components/chat/Composer.tsx) is the input box (Enter sends, `/` suggests skills, Stop aborts a run), [`McpStatusBanner.tsx`](src/components/chat/McpStatusBanner.tsx) prompts for MCP authorization. |
+| [`components/messages/`](src/components/messages) | [`MessageList.tsx`](src/components/messages/MessageList.tsx) groups consecutive assistant messages into one reply, attaches `tool` results to their call by `toolCallId`, and splits answered HITL prompts out as their own entries; [`MessageItem.tsx`](src/components/messages/MessageItem.tsx) lays a turn out as text, step groups and cards. |
+| [`components/steps/`](src/components/steps) | The agent's working: consecutive tool calls and skill activations fold into one collapsible [`StepGroup`](src/components/steps/StepGroup.tsx), each step a [`ToolCall`](src/components/steps/ToolCall.tsx) (opens to arguments/result) or [`SkillCall`](src/components/steps/SkillCall.tsx). |
+| [`components/hitl/`](src/components/hitl) | Human-in-the-Loop (contract in [`lib/hitl.ts`](src/lib/hitl.ts)): [`HitlDock`](src/components/hitl/HitlDock.tsx) is the open prompt, docked in place of the composer; [`HitlExchange`](src/components/hitl/HitlExchange.tsx) is the answered exchange, its own entry in the transcript. |
+| [`components/cards/`](src/components/cards) | The agent-authored [`A2uiSurface`](src/components/cards/A2uiSurface.tsx), rendered inline as an interactive card. |
+| [`components/ui/`](src/components/ui) | Shared primitives: `Button`, icons, `Markdown`. |
 
 ### Streaming model
 
 Each `runAgent()` is one **run**: the assistant message grows token-by-token as
-`TEXT_MESSAGE_CONTENT` events arrive, and tool calls appear as cards that flip
-from `⟳` to `✓` when their result event lands. Because the reduction is keyed by
+`TEXT_MESSAGE_CONTENT` events arrive, and tool calls appear as steps whose spinner
+flips to `✓` when their result event lands. Because the reduction is keyed by
 the server-assigned `messageId`, those ids **must be unique per run** — the
 server namespaces them with the `runId` so consecutive answers don't merge into
 one bubble.
@@ -53,21 +54,21 @@ one bubble.
 ### Human-in-the-Loop
 
 When the agent calls `ask_user` or `request_user_approval`, the server streams
-the tool call and ends the run — the turn is **suspended**, not finished.
-`MessageItem` renders such a call as an interactive card instead of the generic
-tool view, and the user's response resumes the conversation:
+the tool call and ends the run — the turn is **suspended**, not finished. The
+open prompt takes the composer's place until it is answered, so the user can't
+talk past it; the transcript records the exchange once it has a result:
 
 ```
 assistant.toolCalls[ask_user]        run finished, the call has no result yet
-  └─ HitlPrompt renders the question / approval gate
+  └─ useChat.pendingPrompt → HitlDock replaces the composer
        └─ useChat.respondToToolCall(toolCallId, '{"answer":"prod"}')
             ├─ agent.addMessage({ role: "tool", toolCallId, content })
             └─ agent.runAgent(…)      new runId, same threadId
+  └─ HitlExchange: question + answer, a card in the agent's column
 ```
 
-Answering in the composer instead is fine: `send()` first closes any open prompt
-with `{"cancelled": true}`, because the model cannot take another turn while one
-of its tool calls has no result. The A2UI surface uses the same suspend path but
+`ask_user` can be skipped, which answers `{"cancelled": true, …}`; a rejection
+is the way out of an approval. The A2UI surface uses the same suspend path but
 resumes with a `user` message rather than a tool result.
 
 ## Develop

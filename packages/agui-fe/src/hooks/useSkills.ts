@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 
+import { apiUrl } from "../lib/api";
+
 /** Mirrors `SkillInfo` from `@ai-chat/agents` (served by `GET /skills`). */
 export interface SkillInfo {
   name: string;
   description: string;
 }
 
-const AGUI_URL = import.meta.env.VITE_AGUI_URL ?? "/agui";
-// Resolved against the AG-UI endpoint, so a path prefix or remote origin carries over.
-const SKILLS_URL = new URL("skills", new URL(AGUI_URL, window.location.href)).href;
+const SKILLS_URL = apiUrl("skills");
 
 /**
  * The agent's installed skills, for `/skill-name` suggestions in the composer.

@@ -52,7 +52,15 @@ export type HitlRequest = AskUserRequest | ApprovalRequest;
 export interface PendingHitlCall {
   toolCallId: string;
   toolName: string;
+  /** Raw JSON arguments; see {@link parseHitlRequest}. */
+  arguments: string;
 }
+
+/** A HITL call's `tool` result, read back for the transcript. */
+export type HitlResult =
+  | { kind: "answer"; values: string[] }
+  | { kind: "decision"; approved: boolean; comment?: string }
+  | { kind: "cancelled" };
 
 export function isHitlToolName(name: string): boolean {
   return name === ASK_USER_TOOL_NAME || name === REQUEST_APPROVAL_TOOL_NAME;
@@ -155,30 +163,41 @@ export function formatCancellation(): string {
   });
 }
 
-/** One-line summary of a resolved HITL call, for the collapsed card. */
-export function describeHitlResult(result: string): string {
+/** The user dismissed an `ask_user` prompt without answering it. */
+export function formatSkip(): string {
+  return JSON.stringify({ cancelled: true, reason: "The user skipped this question." });
+}
+
+/**
+ * Reads a HITL call's result back. Undefined for anything else — notably the
+ * server's error for a malformed call, which the model retries on its own and
+ * the user never needs to see.
+ */
+export function parseHitlResult(result: string): HitlResult | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(result);
   } catch {
-    return result;
+    return undefined;
   }
   if (!isRecord(parsed)) {
-    return result;
+    return undefined;
   }
   if (parsed.cancelled === true) {
-    return "Skipped — answered in chat";
+    return { kind: "cancelled" };
   }
   if (parsed.decision === "approved" || parsed.decision === "rejected") {
-    const comment = asString(parsed.comment);
-    const decision = parsed.decision === "approved" ? "Approved" : "Rejected";
-    return comment ? `${decision} — ${comment}` : decision;
+    return {
+      kind: "decision",
+      approved: parsed.decision === "approved",
+      comment: asString(parsed.comment),
+    };
   }
   const answer = parsed.answer;
   if (Array.isArray(answer)) {
-    return answer.map((item) => String(item)).join(", ");
+    return { kind: "answer", values: answer.map((item) => String(item)) };
   }
-  return answer === undefined ? result : String(answer);
+  return answer === undefined ? undefined : { kind: "answer", values: [String(answer)] };
 }
 
 /**
@@ -196,7 +215,13 @@ export function findPendingHitlCalls(messages: Message[]): PendingHitlCall[] {
     }
     return (message.toolCalls ?? []).flatMap((call) =>
       isHitlToolName(call.function.name) && !answered.has(call.id)
-        ? [{ toolCallId: call.id, toolName: call.function.name }]
+        ? [
+            {
+              toolCallId: call.id,
+              toolName: call.function.name,
+              arguments: call.function.arguments,
+            },
+          ]
         : [],
     );
   });

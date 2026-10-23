@@ -1,3 +1,5 @@
+import { StepStatus } from "./StepStatus";
+
 /** Tool the agent calls to load an Agent Skill's instructions. */
 export const SKILL_TOOL_NAME = "Skill";
 
@@ -6,22 +8,21 @@ interface SkillCallProps {
   args: string;
   /** Present once the skill's instructions have loaded. */
   result?: string;
+  isRunning: boolean;
 }
 
 /**
  * A one-line note that the agent loaded a skill. The instructions themselves
- * are for the model, so unlike a generic tool card there's nothing to expand.
+ * are for the model, so unlike a tool step there's nothing to expand.
  */
-export function SkillCall({ args, result }: SkillCallProps) {
+export function SkillCall({ args, result, isRunning }: SkillCallProps) {
   const name = skillName(args);
   const loaded = result !== undefined;
 
   return (
-    <div className="mt-2.5 flex items-center gap-2 text-[13px] text-muted">
-      <span className={loaded ? "text-success" : ""} aria-hidden="true">
-        {loaded ? "✓" : "⟳"}
-      </span>
-      <span>
+    <div className="flex items-center gap-2 text-[13px] text-muted">
+      <StepStatus done={loaded} isRunning={isRunning} />
+      <span className="min-w-0 truncate">
         {loaded ? "Using skill" : "Loading skill"}{" "}
         {name ? <span className="font-mono font-semibold text-ink">{name}</span> : null}
       </span>
@@ -30,7 +31,7 @@ export function SkillCall({ args, result }: SkillCallProps) {
 }
 
 /** The skill's name, once the arguments have streamed in. */
-function skillName(args: string): string | undefined {
+export function skillName(args: string): string | undefined {
   try {
     const parsed: unknown = JSON.parse(args);
     if (typeof parsed === "object" && parsed !== null && "name" in parsed) {

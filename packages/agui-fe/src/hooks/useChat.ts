@@ -1,13 +1,16 @@
 import { HttpAgent } from "@ag-ui/client";
 import type { Message, RunAgentInput } from "@ag-ui/core";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { formatA2uiUserMessage, type A2uiActionPayload } from "../lib/a2ui";
-import { formatCancellation, findPendingHitlCalls } from "../lib/hitl";
+import { AGUI_URL } from "../lib/api";
+import {
+  findPendingHitlCalls,
+  formatCancellation,
+  parseHitlRequest,
+  type HitlRequest,
+} from "../lib/hitl";
 import { uid } from "../lib/ids";
-
-/** Endpoint the browser POSTs AG-UI runs to. Defaults to the Vite dev proxy. */
-const AGUI_URL = import.meta.env.VITE_AGUI_URL ?? "/agui";
 
 /**
  * Sends the session cookie with every run, also to a server on another origin:
@@ -21,10 +24,21 @@ class SessionHttpAgent extends HttpAgent {
 
 export type ChatStatus = "idle" | "running";
 
+/** A Human-in-the-Loop prompt the suspended run is waiting on. */
+export interface PendingPrompt {
+  toolCallId: string;
+  request: HitlRequest;
+}
+
 export interface UseChat {
   messages: Message[];
   status: ChatStatus;
   error: string | null;
+  /**
+   * The HITL prompt to answer before the conversation can go on, once the run
+   * that asked it has suspended. Answer it with {@link UseChat.respondToToolCall}.
+   */
+  pendingPrompt: PendingPrompt | undefined;
   /** Append a user message and start a run. */
   send: (text: string) => void;
   /** Append the user's A2UI interaction as a user message and resume the run. */
@@ -93,29 +107,29 @@ export function useChat(): UseChat {
     };
   }, [threadGeneration]);
 
-  const send = useCallback((text: string) => {
+  const pendingPrompt = useMemo(() => {
+    if (status === "running") {
+      return undefined;
+    }
+    for (const call of findPendingHitlCalls(messages)) {
+      const request = parseHitlRequest(call.toolName, call.arguments);
+      if (request) {
+        return { toolCallId: call.toolCallId, request };
+      }
+    }
+    return undefined;
+  }, [messages, status]);
+
+  /** Appends `newMessages` and starts a run, unless one is already in flight. */
+  const run = useCallback((...newMessages: Message[]) => {
     const agent = agentRef.current;
-    const content = text.trim();
-    if (!agent || !content || agent.isRunning) {
+    if (!agent || agent.isRunning) {
       return;
     }
 
     setError(null);
     setStatus("running");
-
-    // The user typed instead of answering an open HITL prompt. Close those calls
-    // out first: the model can't take another turn while one of its tool calls
-    // has no result, and this tells it the prompt was skipped.
-    for (const pending of findPendingHitlCalls(messagesRef.current)) {
-      agent.addMessage({
-        id: uid("msg"),
-        role: "tool",
-        toolCallId: pending.toolCallId,
-        content: formatCancellation(),
-      });
-    }
-
-    agent.addMessage({ id: uid("msg"), role: "user", content });
+    agent.addMessages(newMessages);
 
     // The server's RunAgentInput schema requires `tools`/`context` arrays; pass
     // them explicitly since this client registers no frontend tools. The HITL
@@ -126,45 +140,45 @@ export function useChat(): UseChat {
     });
   }, []);
 
-  const submitA2uiAction = useCallback((payload: A2uiActionPayload) => {
-    const agent = agentRef.current;
-    if (!agent || agent.isRunning) {
-      return;
-    }
+  const send = useCallback(
+    (text: string) => {
+      const content = text.trim();
+      if (!content) {
+        return;
+      }
+      // The user typed instead of answering an open HITL prompt. Close those
+      // calls out first: the model can't take another turn while one of its tool
+      // calls has no result, and this tells it the prompt was skipped.
+      const cancellations = findPendingHitlCalls(messagesRef.current).map(
+        (pending): Message => ({
+          id: uid("msg"),
+          role: "tool",
+          toolCallId: pending.toolCallId,
+          content: formatCancellation(),
+        }),
+      );
+      run(...cancellations, { id: uid("msg"), role: "user", content });
+    },
+    [run],
+  );
 
-    setError(null);
-    setStatus("running");
-    // The A2UI surface captures a direct user interaction. Resume the run with
-    // that interaction as a normal user message rather than a tool result.
-    agent.addMessage({
-      id: uid("msg"),
-      role: "user",
-      content: formatA2uiUserMessage(payload),
-    });
+  // The A2UI surface captures a direct user interaction. Resume the run with
+  // that interaction as a normal user message rather than a tool result.
+  const submitA2uiAction = useCallback(
+    (payload: A2uiActionPayload) => {
+      run({ id: uid("msg"), role: "user", content: formatA2uiUserMessage(payload) });
+    },
+    [run],
+  );
 
-    void agent.runAgent({ tools: [], context: [] }).catch((runError: unknown) => {
-      setError(runError instanceof Error ? runError.message : "Agent run failed");
-      setStatus("idle");
-    });
-  }, []);
-
-  const respondToToolCall = useCallback((toolCallId: string, content: string) => {
-    const agent = agentRef.current;
-    if (!agent || agent.isRunning) {
-      return;
-    }
-
-    setError(null);
-    setStatus("running");
-    // The suspended run left this tool call open; answering it as a `tool`
-    // message lets the model pick up exactly where it stopped.
-    agent.addMessage({ id: uid("msg"), role: "tool", toolCallId, content });
-
-    void agent.runAgent({ tools: [], context: [] }).catch((runError: unknown) => {
-      setError(runError instanceof Error ? runError.message : "Agent run failed");
-      setStatus("idle");
-    });
-  }, []);
+  // The suspended run left this tool call open; answering it as a `tool`
+  // message lets the model pick up exactly where it stopped.
+  const respondToToolCall = useCallback(
+    (toolCallId: string, content: string) => {
+      run({ id: uid("msg"), role: "tool", toolCallId, content });
+    },
+    [run],
+  );
 
   const stop = useCallback(() => {
     agentRef.current?.abortRun();
@@ -176,5 +190,15 @@ export function useChat(): UseChat {
     newThread();
   }, []);
 
-  return { messages, status, error, send, submitA2uiAction, respondToToolCall, stop, reset };
+  return {
+    messages,
+    status,
+    error,
+    pendingPrompt,
+    send,
+    submitA2uiAction,
+    respondToToolCall,
+    stop,
+    reset,
+  };
 }

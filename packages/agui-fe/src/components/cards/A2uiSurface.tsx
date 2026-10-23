@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { basicCatalog } from "@a2ui/lit/v0_9";
 import { MessageProcessor, type A2uiMessage, type SurfaceModel } from "@a2ui/web_core/v0_9";
 
-import type { A2uiActionPayload } from "../lib/a2ui";
+import type { A2uiActionPayload } from "../../lib/a2ui";
 
 interface A2uiSurfaceProps {
   /** Ordered A2UI v0.9 messages produced by the agent (the `render_a2ui` args). */
@@ -75,7 +75,7 @@ export function A2uiSurface({ messages, onAction }: A2uiSurfaceProps) {
   }, [messagesKey]);
 
   return (
-    <div className="mt-2.5 overflow-hidden rounded-[10px] border border-border bg-canvas p-3">
+    <div className="overflow-hidden rounded-[10px] border border-border bg-canvas p-3">
       {error ? <p className="m-0 text-[13px] text-danger">A2UI render error: {error}</p> : null}
       <a2ui-surface ref={elementRef as React.Ref<HTMLElement>} />
     </div>
