@@ -6,6 +6,7 @@ import { parseHitlRequest } from "../lib/hitl";
 import { A2uiSurface } from "./A2uiSurface";
 import { HitlPrompt } from "./HitlPrompt";
 import { Markdown } from "./Markdown";
+import { SKILL_TOOL_NAME, SkillCall } from "./SkillCall";
 import { ToolCall } from "./ToolCall";
 
 /** Tool the agent calls to render an A2UI surface; rendered specially below. */
@@ -70,6 +71,15 @@ export function MessageItem({
               result={toolResults.get(call.id)}
               busy={isRunning}
               onRespond={(content) => onHitlRespond(call.id, content)}
+            />
+          );
+        }
+        if (call.function.name === SKILL_TOOL_NAME) {
+          return (
+            <SkillCall
+              key={call.id}
+              args={call.function.arguments}
+              result={toolResults.get(call.id)}
             />
           );
         }

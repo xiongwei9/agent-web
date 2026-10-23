@@ -10,6 +10,7 @@ import type {
   McpServerConfig,
   McpServerInfo,
   McpServerStatus,
+  McpToolApproval,
 } from "../types.ts";
 import { consoleLogger } from "../shared/logger.ts";
 import { McpOAuthClientProvider } from "./oauth/provider.ts";
@@ -276,6 +277,7 @@ export class McpToolRegistry implements McpConnections {
       description: describeMcpTool(entry.id, mcpTool),
       parameters: normalizeToolParameters(mcpTool.inputSchema),
       execute: async (args, context) => formatMcpToolResult(await call(args, context)),
+      requiresApproval: requiresApproval(entry.config.approval ?? "destructive", mcpTool),
       code: {
         outputSchema: mcpTool.outputSchema,
         execute: async (args, context) =>
@@ -323,6 +325,24 @@ export class McpToolRegistry implements McpConnections {
     entry.client = undefined;
     void client?.then((connected) => connected.close()).catch(() => {});
   }
+}
+
+/**
+ * Whether the server's `approval` policy holds `tool`'s calls for the user's
+ * approval. Annotations are only hints, but the servers are the app's own
+ * configuration, so they are trusted as far as the policy says.
+ */
+function requiresApproval(policy: McpToolApproval, tool: McpTool): boolean {
+  if (policy !== "destructive") {
+    return policy === "always";
+  }
+  const hints = tool.annotations;
+  if (hints?.readOnlyHint === true) {
+    return false;
+  }
+  // Per the spec, a tool that says it writes is destructive unless it says
+  // otherwise; one that gives no hints at all is left alone.
+  return hints?.destructiveHint ?? hints?.readOnlyHint === false;
 }
 
 function toServerInfo(entry: McpServerEntry): McpServerInfo {

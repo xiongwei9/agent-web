@@ -21,6 +21,23 @@ export interface Agent {
   run: AgentRunner;
   /** MCP connection status and OAuth control; undefined when no MCP servers are configured. */
   mcp: McpConnections | undefined;
+  /** The installed Agent Skills, e.g. to offer `/skill-name` commands. */
+  skills: SkillInfo[];
+}
+
+/** An installed Agent Skill, as a user picks it. */
+export interface SkillInfo {
+  name: string;
+  description: string;
+}
+
+export interface SkillsConfig {
+  /**
+   * Directories holding skill folders (each a folder with a `SKILL.md`).
+   * A skill in an earlier directory wins a name clash with a later one.
+   * Default: none, so the agent has no skills.
+   */
+  dirs?: string[];
 }
 
 /**
@@ -213,7 +230,21 @@ export type McpServerConfig =
 export interface McpBaseServerConfig {
   /** Per-request MCP protocol timeout in milliseconds. */
   timeoutMs?: number;
+  /** Which of the server's tools wait for the user's approval before each call (default `destructive`). */
+  approval?: McpToolApproval;
 }
+
+/**
+ * Which of a server's tools need the user's approval before each call:
+ * - `destructive` (default) — the tools whose annotations say they are
+ *   destructive: `destructiveHint: true`, or `readOnlyHint: false` without
+ *   `destructiveHint: false` (the MCP spec's default for a tool that writes).
+ *   Tools without these hints run freely, so use `always` for a server that
+ *   doesn't annotate its tools.
+ * - `always` — every tool
+ * - `never` — none
+ */
+export type McpToolApproval = "destructive" | "always" | "never";
 
 export interface McpStdioServerConfig extends McpBaseServerConfig {
   transport?: "stdio";
@@ -247,6 +278,7 @@ export interface AgentConfig {
   execution?: AgentExecutionConfig;
   codeMode?: CodeModeConfig;
   mcp?: McpConfig;
+  skills?: SkillsConfig;
   /**
    * Where the agent logs. Defaults to the console with `debug` off. `debug`
    * includes every full prompt and response, tool results included, so enable

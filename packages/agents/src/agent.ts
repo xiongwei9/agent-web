@@ -33,7 +33,8 @@ const DEFAULT_SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url)
  * This is the one place that knows which capabilities exist (see
  * {@link AgentCapability}): local builtins, Agent Skills (Claude Code–style
  * progressive disclosure), MCP server tools, A2UI surfaces, and the
- * Human-in-the-Loop prompts. The loop also offers the client tools a request
+ * Human-in-the-Loop prompts. Skills come from `config.skills.dirs`; a user
+ * message starting with `/<skill-name>` activates one. The loop also offers the client tools a request
  * declares in `RunAgentInput.tools`. With `config.codeMode` enabled, the server
  * tools are offered as one `execute_code` tool instead (see {@link withCodeMode}).
  *
@@ -57,11 +58,12 @@ export function createAgent(config: AgentConfig = {}): Agent {
   const compactionCache = new CompactionCache();
 
   const mcp = createMcpConnections(config.mcp, { logger });
+  const skills = new SkillsToolset({ dirs: config.skills?.dirs, logger });
   // Order matters: it's the order of the system-prompt sections, and a later
   // capability's server tool wins a name clash.
   const shared: AgentCapability[] = [
     builtinCapability(),
-    new SkillsToolset(),
+    skills,
     a2uiCapability(),
     hitlCapability(),
   ];
@@ -96,6 +98,7 @@ export function createAgent(config: AgentConfig = {}): Agent {
             model,
             serverTools: tools.serverTools,
             frontendTools: tools.frontendTools,
+            expandUserText: tools.expandUserText,
             maxToolIterations: execution?.maxToolIterations,
             compaction,
             compactionCache,
@@ -116,5 +119,5 @@ export function createAgent(config: AgentConfig = {}): Agent {
     });
   };
 
-  return { run, mcp };
+  return { run, mcp, skills: skills.list() };
 }

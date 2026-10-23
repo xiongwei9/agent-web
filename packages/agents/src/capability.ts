@@ -19,4 +19,11 @@ export interface AgentCapability {
    * suspends the run until the client resumes it with the result.
    */
   clientTools?(): FrontendTool[];
+  /**
+   * Rewrites a user message's text before the model sees it, e.g. to expand
+   * a `/skill-name` command; undefined leaves it alone. The client keeps the
+   * text as typed, so this runs on every user message in every run and must
+   * give the same result each time.
+   */
+  userText?(text: string): string | undefined;
 }

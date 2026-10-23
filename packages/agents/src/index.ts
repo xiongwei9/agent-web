@@ -23,7 +23,10 @@ export type {
   McpSseServerConfig,
   McpStdioServerConfig,
   McpStreamableHttpServerConfig,
+  McpToolApproval,
   OpenAIModelApi,
   RunContext,
+  SkillInfo,
+  SkillsConfig,
 } from "./types.ts";
 export { LANGUAGE_MODEL_PROVIDERS } from "./types.ts";

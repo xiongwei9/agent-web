@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 
 // The AG-UI server defaults to http://localhost:3000. During dev we proxy
-// `/agui` and `/mcp` to it so the browser talks to the Vite origin and avoids CORS edge
+// `/agui`, `/mcp` and `/skills` to it so the browser talks to the Vite origin and avoids CORS edge
 // cases. Override with VITE_AGUI_TARGET (build-time) if the server lives
 // elsewhere.
 export default defineConfig(({ mode }) => {
@@ -21,6 +21,11 @@ export default defineConfig(({ mode }) => {
         },
         // MCP server status + OAuth callback (see agui-server routes/mcp.ts).
         "/mcp": {
+          target,
+          changeOrigin: true,
+        },
+        // The installed skills, for `/skill-name` suggestions.
+        "/skills": {
           target,
           changeOrigin: true,
         },

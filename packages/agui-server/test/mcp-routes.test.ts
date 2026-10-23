@@ -64,7 +64,7 @@ describe("MCP routes", () => {
     assert.match(response.body, /Connected to demo/);
 
     assert.deepEqual(await getServers(app, browser), [
-      { id: "demo", status: "connected", toolCount: 7 },
+      { id: "demo", status: "connected", toolCount: 8 },
     ]);
   });
 
@@ -136,7 +136,7 @@ describe("MCP OAuth persistence", () => {
     const second = await startApp({ demo: { url: demo.url } }, { storePath });
     try {
       assert.deepEqual(await getServers(second, browser), [
-        { id: "demo", status: "connected", toolCount: 7 },
+        { id: "demo", status: "connected", toolCount: 8 },
       ]);
     } finally {
       await second.close();

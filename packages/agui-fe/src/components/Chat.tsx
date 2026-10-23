@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { useChat } from "../hooks/useChat";
+import { useSkills } from "../hooks/useSkills";
 import { Composer } from "./Composer";
 import { McpStatusBanner } from "./McpStatusBanner";
 import { MessageList } from "./MessageList";
@@ -8,6 +9,7 @@ import { MessageList } from "./MessageList";
 export function Chat() {
   const { messages, status, error, send, submitA2uiAction, respondToToolCall, stop, reset } =
     useChat();
+  const skills = useSkills();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Keep the latest message in view as the stream grows.
@@ -62,7 +64,7 @@ export function Chat() {
         ) : null}
       </div>
 
-      <Composer onSend={send} onStop={stop} isRunning={isRunning} />
+      <Composer onSend={send} onStop={stop} isRunning={isRunning} skills={skills} />
     </main>
   );
 }

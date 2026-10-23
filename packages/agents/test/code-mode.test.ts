@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { EventType, type BaseEvent } from "@ag-ui/core";
 import { startDemoHttpServer, type DemoHttpServer } from "@ai-chat/mcp-server-demo";
@@ -31,6 +32,7 @@ function runTools(tools: ServerTool[]): RunTools {
     systemPrompt: "base",
     serverTools: new Map(tools.map((tool) => [tool.name, tool])),
     frontendTools: new Map(),
+    expandUserText: (text) => text,
   };
 }
 
@@ -242,13 +244,14 @@ describe("withCodeMode", () => {
   });
 
   test("keeps the skills tools direct", async () => {
-    const skills = new SkillsToolset();
+    const skills = new SkillsToolset({
+      dirs: [fileURLToPath(new URL("../../skills", import.meta.url))],
+    });
+    assert.ok(skills.size > 0);
     const tools = withCodeMode(await resolveRunTools([builtinCapability(), skills]), {});
     assert.ok(tools.serverTools.has(EXECUTE_CODE_TOOL));
     assert.ok(!tools.serverTools.has("get_server_time"));
-    if (skills.size > 0) {
-      assert.ok(tools.serverTools.has("Skill"));
-    }
+    assert.ok(tools.serverTools.has("Skill"));
   });
 
   test("runs nothing when the code fails to type-check", async () => {
@@ -421,9 +424,11 @@ describe("agent loop in code mode", () => {
       }).pipe(toArray()),
     )) as AnyEvent[];
 
+    // The demo's destructive tool needs approval, so it stays a direct tool.
     const advertised = calls[0]!.tools!.map((def) => def.name);
-    assert.deepEqual(advertised, [EXECUTE_CODE_TOOL]);
-    const description = calls[0]!.tools![0]!.description ?? "";
+    assert.deepEqual(advertised, ["demo__delete_item", EXECUTE_CODE_TOOL]);
+    const description =
+      calls[0]!.tools!.find((def) => def.name === EXECUTE_CODE_TOOL)!.description ?? "";
     assert.match(description, /demo__get_weather\(args: \{/);
     assert.match(description, /get_server_time\(/);
 

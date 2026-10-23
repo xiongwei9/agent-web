@@ -36,10 +36,11 @@ server 自身不包含 agent logic。它会使用已加载的 config 调用 [`cr
   `AgentConfig.systemPrompt`）覆盖。Skills catalog、A2UI 和 HITL 指引会自动追加在其后。
 - **MCP servers** 可以通过 `MCP_SERVERS` env var 作为 server-side tools 暴露给
   agent（支持 stdio、streamable HTTP 或 SSE transports）。
-- [`packages/agents/src/skills/`](packages/agents/src/skills/) 中的
-  **Agent Skills** 遵循 Claude Code 风格的 progressive disclosure：低成本的
-  name/description catalog 会被注入 prompt，完整的 `SKILL.md` 及打包资源仅在
-  skill 被调用时加载。
+- **Agent Skills** 放在 [`packages/skills/`](packages/skills/)（可用 `SKILLS_DIRS`
+  改为其他目录），遵循 [Agent Skills 规范](https://agentskills.io/specification)
+  的 progressive disclosure：低成本的 name/description catalog 会被注入 prompt，
+  完整的 `SKILL.md` 及打包资源仅在 skill 被调用时加载。用户也可以在消息开头输入
+  `/skill-name` 直接激活某个 skill，前端输入 `/` 时会提示可用的 skills。
 
 ### Human-in-the-Loop（HITL）
 
@@ -72,6 +73,20 @@ model → ask_user / request_user_approval
   `{"cancelled": true}` 的 tool result；server 端的
   [`buildPrompt`](packages/agents/src/loop/prompt.ts) 也会为任何未被回答的 tool call 兜底补齐，
   避免 model API 因「有 tool call 却没有对应 tool result」而报错。
+
+#### 强制审批
+
+`request_user_approval` 要靠 model 自觉调用。对标记为需要审批的 server tool
+（`ServerTool.requiresApproval`），loop 会强制审批（见
+[`loop/approval.ts`](packages/agents/src/loop/approval.ts)）：model 调用后先不执行，
+由 loop 自己发出一个 `request_user_approval` 调用并挂起 run，前端照常渲染审批卡片。用户批准后，
+恢复的 run 先执行原调用，再让 model 继续；拒绝或跳过则回给 model 一条「未执行」的结果。
+loop 自己发出的审批调用不会进入 model 的 prompt，model 只看到原调用和它的结果。
+
+MCP tools 是否需要审批由各 server 的 `approval` 决定：默认 `destructive` 依据 tool
+annotations（`destructiveHint: true`，或 `readOnlyHint: false` 且未声明
+`destructiveHint: false`），没有任何 hint 的 tool 不拦截；`always` 拦截全部，`never` 全部放行。
+需要审批的 tools 在 code mode 下保持直接调用，因为脚本无法等待用户。
 
 ## 快速开始
 
@@ -124,6 +139,7 @@ curl -N http://localhost:3000/agui \
 | `PORT` | `3000` | 绑定 port。 |
 | `LOG_LEVEL` | `info` | Fastify log level。 |
 | `SYSTEM_PROMPT` | — | 覆盖默认 system prompt（`packages/agents/src/system-prompt.md`）。 |
+| `SKILLS_DIRS` | `packages/skills` | 逗号分隔的 skill 目录，靠前的目录在重名时优先；`off` 表示不加载 skills。 |
 | `MODEL_PROVIDER` | — | `openai` \| `openai-compatible` \| `anthropic` \| `google`。 |
 | `MODEL_API` | — | OpenAI SDK mode：`responses` 或 `chat`。 |
 | `MODEL_API_KEY` | — | language model 的 API key。 |

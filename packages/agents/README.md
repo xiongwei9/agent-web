@@ -20,8 +20,9 @@ src/
   mcp/              MCP: per-user connections (users.ts), one user's registry
                     (registry.ts), transports, result formatting, OAuth client
                     state and token stores (oauth/)
-  skills/           Agent Skills: the SKILL.md folders, their loader, and the
-                    skill tools (toolset.ts)
+  skills/           Agent Skills: the loader, the skill tools and
+                    `/skill-name` commands (toolset.ts); the skills themselves
+                    live in `AgentConfig.skills.dirs`
   client-tools/     client-fulfilled tools: A2UI surfaces, HITL prompts
   code-mode/        code mode: the execute_code / search_tools tools, the
                     tools' TypeScript declarations, the type check, and the
@@ -94,8 +95,9 @@ and filters their results, and returns only what it needs.
   file system, timers, or modules, a 64 MB memory cap, and
   `codeMode.timeoutMs` (default 30s) for the whole call, tool calls included.
 
-Skills tools and client tools (A2UI, HITL, request-declared tools) stay direct:
-they suspend the run or steer the model rather than fetch data.
+Skills tools, client tools (A2UI, HITL, request-declared tools) and tools that
+require approval stay direct: they suspend the run or steer the model rather
+than fetch data.
 
 MCP tools come from `AgentConfig.mcp.servers`. Streamable HTTP is the preferred
 transport and the default for a `url` without `transport`; stdio (`command`) and
@@ -164,24 +166,51 @@ The A2UI render tool (`src/client-tools/a2ui.ts`) shares that suspend path
 for whole agent-authored surfaces; so do frontend tools a request declares in
 `RunAgentInput.tools`.
 
+Server tools marked `requiresApproval` reuse it to enforce approval
+(`src/loop/approval.ts`): the loop holds the model's call back, raises a
+`request_user_approval` call of its own listing it, and suspends. The resumed
+run runs the call if the user approved it (and the approval is the latest
+thing in the history), or gives it a "not run" result otherwise, before the
+model's next turn. The loop's approval call is left out of the model's prompt.
+An MCP server's `approval` (`destructive` by default, `always`, `never`) decides
+which of its tools are marked, from their annotations.
+
 ## Skills
 
 Agent Skills are packaged, on-demand capabilities following the
-[Agent Skills spec](https://github.com/anthropics/skills). The `src/skills/`
-module owns the `SKILL.md` folders and their discovery helpers (`loader.ts`),
-and `toolset.ts` turns them into tools.
+[Agent Skills spec](https://agentskills.io/specification). The `src/skills/`
+module discovers them (`loader.ts`) and `toolset.ts` turns them into tools.
+The skills live outside the package, in the directories
+`AgentConfig.skills.dirs` lists; a skill in an earlier directory wins a name
+clash. The server's default is the repo's `packages/skills/`.
 
-Each skill is a folder under `src/skills/<skill-name>/` containing:
+Each skill is a folder `<dir>/<skill-name>/` containing:
 
 - `SKILL.md` — YAML frontmatter (`name`, `description`) plus a markdown body of
-  instructions. `name` must be lowercase/hyphenated (e.g. `release-notes`).
+  instructions. `name` is lowercase letters, digits and single hyphens (e.g.
+  `release-notes`), at most 64 characters, and matches the folder name.
 - `references/`, `scripts/`, `assets/` — optional supporting files the model can
   read on demand.
 
-Skills use progressive disclosure: only each skill's name + description is
-injected into the system prompt; the `Skill` tool loads the full `SKILL.md`, and
-`read_skill_file` / `run_skill_script` access bundled files, sandboxed to the
-skill's directory. These tools are hidden from the AG-UI event stream.
+Loading is lenient, as the spec's client guide recommends: a skill whose
+frontmatter doesn't parse or has no `description` is skipped, a duplicate
+`name` is skipped, and other spec violations only warn — all through the
+agent's logger, never failing startup.
 
-Drop a skill folder into `src/skills/` → it is discovered automatically. With
-no skill folders, no skill tools are registered.
+Skills use progressive disclosure: only each skill's name + description is
+injected into the system prompt; the `Skill` tool loads the full `SKILL.md`
+body wrapped in `<skill_content name="…">` with a list of its bundled files,
+and `read_skill_file` / `run_skill_script` access those files, sandboxed to the
+skill's directory. The tools stream like any other tool call, so the client
+keeps a loaded skill in its history and it stays in context on later runs;
+context compaction keeps `<skill_content>` blocks verbatim rather than
+summarizing them.
+
+The user can activate a skill too: a user message that starts with
+`/<skill-name>` reaches the model with the skill's `<skill_content>` in front
+of the rest of the message. The client keeps the message as typed, so it is
+expanded the same way on every run (`AgentCapability.userText`). `Agent.skills`
+lists the installed skills for a UI to suggest.
+
+Drop a skill folder into a skills directory → it is discovered when the agent
+is created. With no skills, no skill tools are registered.

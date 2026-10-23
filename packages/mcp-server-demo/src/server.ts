@@ -7,6 +7,8 @@ export const DEMO_SERVER_VERSION = "0.1.0";
 export const DEMO_IMAGE_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
+const READ_ONLY = { readOnlyHint: true } as const;
+
 const WEATHER: Record<string, { condition: string; temperatureC: number }> = {
   beijing: { condition: "sunny", temperatureC: 22 },
   shanghai: { condition: "cloudy", temperatureC: 25 },
@@ -28,6 +30,10 @@ export interface DemoServerOptions {
  * - `fail` — a tool-level error (`isError: true`)
  * - `sleep` — a slow call, for timeout and cancellation
  * - `whoami` — echoes the HTTP request headers and the OAuth client, if any
+ * - `delete_item` — annotated as destructive, so the agent asks the user to
+ *   approve each call (it deletes nothing)
+ *
+ * The other tools are annotated read-only.
  *
  * Served over Streamable HTTP by `http.ts`.
  */
@@ -41,6 +47,7 @@ export function createDemoServer(options: DemoServerOptions = {}): McpServer {
     "echo",
     {
       description: "Echo the given text back.",
+      annotations: READ_ONLY,
       inputSchema: { text: z.string().describe("Text to echo.") },
     },
     ({ text }) => ({ content: [{ type: "text", text }] }),
@@ -50,6 +57,7 @@ export function createDemoServer(options: DemoServerOptions = {}): McpServer {
     "add",
     {
       description: "Add two numbers.",
+      annotations: READ_ONLY,
       inputSchema: { a: z.number(), b: z.number() },
       outputSchema: { sum: z.number() },
     },
@@ -63,6 +71,7 @@ export function createDemoServer(options: DemoServerOptions = {}): McpServer {
     "get_weather",
     {
       description: "Get the (fake) current weather for a city.",
+      annotations: READ_ONLY,
       inputSchema: { city: z.string().describe("City name, e.g. Beijing.") },
     },
     ({ city }) => {
@@ -74,14 +83,19 @@ export function createDemoServer(options: DemoServerOptions = {}): McpServer {
     },
   );
 
-  server.registerTool("get_image", { description: "Return a tiny PNG image." }, () => ({
-    content: [{ type: "image", data: DEMO_IMAGE_BASE64, mimeType: "image/png" }],
-  }));
+  server.registerTool(
+    "get_image",
+    { description: "Return a tiny PNG image.", annotations: READ_ONLY },
+    () => ({
+      content: [{ type: "image", data: DEMO_IMAGE_BASE64, mimeType: "image/png" }],
+    }),
+  );
 
   server.registerTool(
     "fail",
     {
       description: "Always fails with a tool-level error.",
+      annotations: READ_ONLY,
       inputSchema: { message: z.string().optional() },
     },
     ({ message }) => ({
@@ -94,6 +108,7 @@ export function createDemoServer(options: DemoServerOptions = {}): McpServer {
     "sleep",
     {
       description: "Wait for the given number of milliseconds, then reply.",
+      annotations: READ_ONLY,
       inputSchema: { ms: z.number().int().min(0).max(60_000) },
     },
     async ({ ms }, extra) => {
@@ -104,7 +119,10 @@ export function createDemoServer(options: DemoServerOptions = {}): McpServer {
 
   server.registerTool(
     "whoami",
-    { description: "Return the HTTP headers and OAuth client the request arrived with." },
+    {
+      description: "Return the HTTP headers and OAuth client the request arrived with.",
+      annotations: READ_ONLY,
+    },
     (extra) => {
       const auth = extra.authInfo
         ? { clientId: extra.authInfo.clientId, scopes: extra.authInfo.scopes }
@@ -112,6 +130,16 @@ export function createDemoServer(options: DemoServerOptions = {}): McpServer {
       const text = JSON.stringify({ headers: extra.requestInfo?.headers ?? {}, auth });
       return { content: [{ type: "text", text }] };
     },
+  );
+
+  server.registerTool(
+    "delete_item",
+    {
+      description: "Permanently delete an item by id. (A demo: nothing is actually deleted.)",
+      inputSchema: { id: z.string().describe("Id of the item to delete.") },
+      annotations: { destructiveHint: true },
+    },
+    ({ id }) => ({ content: [{ type: "text", text: `deleted item ${id}` }] }),
   );
 
   return server;

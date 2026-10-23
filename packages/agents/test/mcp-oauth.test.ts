@@ -109,7 +109,7 @@ describe("McpToolRegistry with an OAuth-protected server", () => {
     const registry = openRegistry(t, { demo: { url: server.url } });
 
     const info = await authorize(registry);
-    assert.deepEqual(info, { id: "demo", status: "connected", toolCount: 7 });
+    assert.deepEqual(info, { id: "demo", status: "connected", toolCount: 8 });
 
     const whoami = JSON.parse(await (await registry.getTools()).get("demo__whoami")!.execute({}));
     assert.equal(whoami.auth.scopes.join(" "), DEMO_SCOPE);
@@ -339,7 +339,7 @@ describe("McpToolRegistry with a file OAuth store", () => {
       { store: createFileMcpOAuthStore(path) },
     );
     await second.connect();
-    assert.deepEqual(serverInfo(second), { id: "demo", status: "connected", toolCount: 7 });
+    assert.deepEqual(serverInfo(second), { id: "demo", status: "connected", toolCount: 8 });
     assert.equal(
       await (await second.getTools()).get("demo__echo")!.execute({ text: "no re-auth" }),
       "no re-auth",

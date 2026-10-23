@@ -11,6 +11,8 @@ export interface RunTools {
   serverTools: Map<string, ServerTool>;
   /** Tools the client fulfills, by name. */
   frontendTools: Map<string, FrontendTool>;
+  /** Applies every capability's `userText` rewrite, in order. */
+  expandUserText: (text: string) => string;
 }
 
 /**
@@ -37,15 +39,27 @@ export async function resolveRunTools(capabilities: AgentCapability[]): Promise<
   }
 
   const systemPrompt = joinSections(capabilities.map((capability) => capability.systemPrompt?.()));
-  return { systemPrompt, serverTools, frontendTools };
+  const expandUserText = (text: string) =>
+    capabilities.reduce((current, capability) => capability.userText?.(current) ?? current, text);
+  return { systemPrompt, serverTools, frontendTools, expandUserText };
 }
+
+/**
+ * Appended to the description of a tool that requires approval, so the model
+ * neither asks for it again nor reads the wait as a failure.
+ */
+const APPROVAL_NOTE =
+  "Each call asks the user for approval first and runs only if they approve, so don't ask " +
+  "for approval yourself; if they don't, the result says so.";
 
 /** Converts a server-side tool into a model function declaration. */
 export function toModelToolDef(tool: ServerTool): ModelFunctionTool {
   return {
     type: "function",
     name: tool.name,
-    description: tool.description,
+    description: tool.requiresApproval
+      ? joinSections([tool.description, APPROVAL_NOTE])!
+      : tool.description,
     inputSchema: tool.parameters,
   };
 }

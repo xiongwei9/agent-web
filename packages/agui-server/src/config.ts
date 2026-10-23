@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   createFileMcpOAuthStore,
@@ -10,6 +11,7 @@ import {
   type McpOAuthConfig,
   type McpOAuthStore,
   type McpServerConfig,
+  type McpToolApproval,
   type OpenAIModelApi,
 } from "@ai-chat/agents";
 
@@ -23,6 +25,9 @@ const MCP_OAUTH_AUTHORIZATION_HINT =
 export const MCP_OAUTH_CALLBACK_PATH = "/mcp/oauth/callback";
 
 const DEFAULT_SESSION_SECRET_PATH = ".session-secret";
+
+/** The repo's `packages/skills/`, from both `src/` and the built `dist/`. */
+const DEFAULT_SKILLS_DIR = fileURLToPath(new URL("../../skills", import.meta.url));
 
 export interface AppConfig {
   agent: AgentConfig;
@@ -71,8 +76,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         authorizationHint: MCP_OAUTH_AUTHORIZATION_HINT,
         store: readMcpOAuthStore(env.MCP_OAUTH_STORE_PATH),
       }),
+      skills: { dirs: readSkillsDirs(env.SKILLS_DIRS) },
     },
   };
+}
+
+/**
+ * Where the agent's skills are: comma-separated directories of skill folders,
+ * relative to the working directory, an earlier one winning a name clash.
+ * Unset means `packages/skills/`; `off` means no skills.
+ */
+function readSkillsDirs(value: string | undefined): string[] {
+  const raw = emptyToUndefined(value);
+  if (raw === undefined) {
+    return [DEFAULT_SKILLS_DIR];
+  }
+  if (raw === "off") {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((dir) => dir.trim())
+    .filter(Boolean)
+    .map((dir) => resolve(dir));
 }
 
 function readLanguageModelProvider(value: string | undefined): LanguageModelProvider | undefined {
@@ -195,6 +221,7 @@ function readMcpServerConfig(serverId: string, value: unknown): McpServerConfig 
 
   const transport = readMcpTransport(value);
   const timeoutMs = readOptionalPositiveIntegerValue(value.timeoutMs);
+  const approval = readMcpApproval(value.approval, serverId);
 
   if (transport === "stdio") {
     const command = readRequiredString(value.command, `MCP server "${serverId}" command`);
@@ -205,6 +232,7 @@ function readMcpServerConfig(serverId: string, value: unknown): McpServerConfig 
       env: readOptionalStringRecord(value.env, `MCP server "${serverId}" env`),
       cwd: readOptionalString(value.cwd),
       timeoutMs,
+      approval,
     };
   }
 
@@ -214,7 +242,23 @@ function readMcpServerConfig(serverId: string, value: unknown): McpServerConfig 
     url,
     headers: readOptionalStringRecord(value.headers, `MCP server "${serverId}" headers`),
     timeoutMs,
+    approval,
   };
+}
+
+const MCP_APPROVAL_VALUES: McpToolApproval[] = ["destructive", "always", "never"];
+
+function readMcpApproval(value: unknown, serverId: string): McpToolApproval | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const approval = MCP_APPROVAL_VALUES.find((candidate) => candidate === value);
+  if (!approval) {
+    throw new Error(
+      `Invalid MCP server "${serverId}" approval ${JSON.stringify(value)}. Supported values: ${MCP_APPROVAL_VALUES.join(", ")}.`,
+    );
+  }
+  return approval;
 }
 
 function readMcpTransport(value: Record<string, unknown>): "stdio" | "http" | "sse" {

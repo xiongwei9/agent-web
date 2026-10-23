@@ -16,7 +16,16 @@ import {
 import type { McpServerConfig } from "../src/types.ts";
 import { unreachableMcpUrl } from "./helpers.ts";
 
-const DEMO_TOOLS = ["add", "echo", "fail", "get_image", "get_weather", "sleep", "whoami"];
+const DEMO_TOOLS = [
+  "add",
+  "delete_item",
+  "echo",
+  "fail",
+  "get_image",
+  "get_weather",
+  "sleep",
+  "whoami",
+];
 
 /** Opens a registry for the test and closes its clients afterwards. */
 function openRegistry(

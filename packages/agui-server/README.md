@@ -45,6 +45,9 @@ Optional configuration:
   included; keep it off where those must not reach the logs
 - `SESSION_SECRET` signs the session cookie (see [Sessions](#sessions))
 - `MCP_SERVERS` is optional JSON config for MCP tool servers
+- `SKILLS_DIRS` lists the directories of Agent Skills, comma-separated and
+  relative to the working directory; an earlier one wins a name clash. Unset,
+  it's the repo's `packages/skills/`; `off` means no skills
 
 `MCP_SERVERS` may be either a server map or an object with `mcpServers` /
 `servers`. Remote servers use `url` and default to Streamable HTTP (the
@@ -52,6 +55,11 @@ preferred transport); set `"transport": "sse"` only for legacy SSE servers.
 Stdio servers use `command`. MCP tools are exposed to the agent with namespaced
 tool names: `<serverId>__<toolName>`. For a local server to try this with, see
 `packages/mcp-server-demo`.
+
+Each server's `approval` decides which of its tools wait for the user's
+approval before every call: `destructive` (default) gates the tools whose
+annotations mark them destructive, `always` gates all of them, `never` none.
+Use `always` for a server that doesn't annotate its tools.
 
 Remote MCP servers that require OAuth are supported, per user (see
 [Sessions](#sessions)). When the frontend loads, it polls `GET /mcp/servers`,
@@ -115,6 +123,7 @@ pnpm --filter @ai-chat/agui-server typecheck
 - `POST /agent` alias for clients that expect an `/agent` endpoint.
 - `GET /mcp/servers` the session user's MCP server status; a `needs_auth` server carries its `authorizationUrl`
 - `GET /mcp/oauth/callback` OAuth redirect target for MCP authorization servers
+- `GET /skills` the installed Agent Skills; a message starting with `/<name>` activates one
 - `GET /docs` Swagger UI
 - `GET /docs/json` OpenAPI JSON
 

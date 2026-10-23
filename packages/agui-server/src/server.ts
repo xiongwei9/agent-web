@@ -17,6 +17,7 @@ import { aguiRoutes } from "./routes/agui.ts";
 import type { AppConfig } from "./config.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
+import { skillsRoutes } from "./routes/skills.ts";
 import { loadSessionSecret } from "./session.ts";
 
 export interface BuildAppOptions {
@@ -89,6 +90,7 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
         { name: "system", description: "Service diagnostics" },
         { name: "ag-ui", description: "AG-UI protocol endpoints" },
         { name: "mcp", description: "MCP server status and OAuth" },
+        { name: "skills", description: "Agent Skills" },
       ],
     },
     transform: jsonSchemaTransform,
@@ -108,6 +110,7 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
   await app.register(healthRoutes);
   await app.register(aguiRoutes, { runAgent: agent.run });
   await app.register(mcpRoutes, { mcp: agent.mcp });
+  await app.register(skillsRoutes, { skills: agent.skills });
 
   // MCP connections are per user and open on a user's first request (the
   // frontend polls `GET /mcp/servers` on load), so there is nothing to warm up.

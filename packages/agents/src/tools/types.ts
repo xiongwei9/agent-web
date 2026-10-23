@@ -17,6 +17,20 @@ export interface ServerTool {
    */
   hidden?: boolean;
   /**
+   * When true, code mode offers the tool to the model as itself instead of
+   * through `execute_code` — for tools that steer the model (e.g. the Agent
+   * Skills tools) rather than fetch data. Hidden tools are always direct.
+   */
+  direct?: boolean;
+  /**
+   * When true, the model's calls don't run right away: the loop asks the user
+   * to approve them (a `request_user_approval` prompt it raises itself) and
+   * suspends the run, then runs them only once they're approved (see
+   * `loop/approval.ts`). Such tools stay direct in code mode, since a script
+   * can't wait for the user.
+   */
+  requiresApproval?: boolean;
+  /**
    * How code mode's scripts call the tool, when it can hand them more than
    * `execute`'s text: `execute` resolves to the value the script receives —
    * described by `outputSchema` when given — and throws on a tool-level

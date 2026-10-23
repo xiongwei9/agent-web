@@ -22,12 +22,16 @@ const UNANSWERED_RESULT = "No result was returned for this tool call; it was not
  * type instead of answering it — model APIs reject a prompt whose tool call
  * has no result, so the history is closed out here rather than failing the
  * next run.
+ *
+ * Each user message's text goes through `expandUserText` (e.g. a
+ * `/skill-name` command becomes the skill's instructions plus the request).
  */
 export function buildPrompt(
   messages: Message[],
   persona: string | undefined,
   context: Context[],
   clientTools: ReadonlyMap<string, FrontendTool> = new Map(),
+  expandUserText: (text: string) => string = (text) => text,
 ): ModelMessage[] {
   const prompt: ModelMessage[] = [];
 
@@ -55,7 +59,7 @@ export function buildPrompt(
         break;
       }
       case "user": {
-        const text = extractUserText(message.content);
+        const text = expandUserText(extractUserText(message.content));
         prompt.push({ role: "user", content: [{ type: "text", text }] });
         break;
       }

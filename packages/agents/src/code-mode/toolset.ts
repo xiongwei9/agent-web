@@ -39,12 +39,13 @@ interface ToolApi {
  * prompt, the description only names the tools and a `search_tools` tool
  * looks up the ones the model needs.
  *
- * Hidden tools (skills plumbing) stay direct: they steer the model rather than
- * fetch data. Client tools (A2UI, HITL) stay direct too, since calling one
- * suspends the run. Without any tool to wrap, `tools` is returned unchanged.
+ * Hidden and `direct` tools (e.g. the skills tools) stay direct: they steer the
+ * model rather than fetch data. Client tools (A2UI, HITL) and tools that require approval stay
+ * direct too, since calling one suspends the run, which a script can't wait
+ * for. Without any tool to wrap, `tools` is returned unchanged.
  */
 export function withCodeMode(tools: RunTools, config: CodeModeConfig): RunTools {
-  const wrapped = [...tools.serverTools.values()].filter((tool) => !tool.hidden);
+  const wrapped = [...tools.serverTools.values()].filter((tool) => !staysDirect(tool));
   if (wrapped.length === 0) {
     return tools;
   }
@@ -55,17 +56,22 @@ export function withCodeMode(tools: RunTools, config: CodeModeConfig): RunTools 
     discovery === "inline" ||
     (discovery === "auto" && api.source.length <= MAX_INLINE_DECLARATION_CHARS);
 
-  const serverTools = new Map([...tools.serverTools].filter(([, tool]) => tool.hidden));
+  const serverTools = new Map([...tools.serverTools].filter(([, tool]) => staysDirect(tool)));
   serverTools.set(EXECUTE_CODE_TOOL, executeCodeTool(api, inline, config));
   if (!inline) {
     serverTools.set(SEARCH_TOOLS_TOOL, searchToolsTool(api));
   }
+  const gated = [...serverTools.values()].filter((tool) => tool.requiresApproval);
 
   return {
     ...tools,
     serverTools,
-    systemPrompt: joinSections([tools.systemPrompt, systemPrompt(inline)]),
+    systemPrompt: joinSections([tools.systemPrompt, systemPrompt(inline, gated)]),
   };
+}
+
+function staysDirect(tool: ServerTool): boolean {
+  return Boolean(tool.hidden || tool.direct || tool.requiresApproval);
 }
 
 function toolApi(tools: ServerTool[]): ToolApi {
@@ -79,7 +85,7 @@ function toolApi(tools: ServerTool[]): ToolApi {
   return { tools, declarations, source: declareTools(declarations) };
 }
 
-function systemPrompt(inline: boolean): string {
+function systemPrompt(inline: boolean, gated: ServerTool[]): string {
   return [
     "## Code mode",
     "",
@@ -90,6 +96,11 @@ function systemPrompt(inline: boolean): string {
     "- Do a whole step in one script: chain calls, run independent ones together with `Promise.all`, and filter or aggregate their results in code.",
     "- `return` only what you need to answer; `console.log` for anything else worth seeing. Keep large raw results out of the return value.",
     "- The code is checked before it runs. If it fails to type-check or to run, read the errors, fix the code and run it again.",
+    ...(gated.length > 0
+      ? [
+          `- These tools need the user's approval, so they aren't in \`tools\`: call them directly instead (${gated.map((tool) => `\`${tool.name}\``).join(", ")}).`,
+        ]
+      : []),
   ].join("\n");
 }
 

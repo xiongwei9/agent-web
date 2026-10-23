@@ -5,6 +5,7 @@ import { aguiEvent } from "../shared/events.ts";
 import type { AgentLogger } from "../types.ts";
 import { consoleLogger } from "../shared/logger.ts";
 import { buildModelToolDefs } from "../tools/toolset.ts";
+import { hideApprovalRequests, requestApproval, settleApprovals } from "./approval.ts";
 import { buildPrompt } from "./prompt.ts";
 import { streamTurn, type CollectedToolCall } from "./stream.ts";
 import { isRecord, parseToolArguments } from "../shared/utils.ts";
@@ -36,6 +37,8 @@ export interface RunOptions {
    * tool; calling one suspends the run for the client.
    */
   frontendTools?: ReadonlyMap<string, FrontendTool>;
+  /** Rewrites user messages' text for the model (e.g. `/skill-name` commands). */
+  expandUserText?: (text: string) => string;
   /** Rounds of tool calls allowed before a final, tools-disabled turn. */
   maxToolIterations?: number;
   temperature?: number;
@@ -60,6 +63,8 @@ export interface RunOptions {
  *     if it called a client tool (an A2UI surface, a Human-in-the-Loop prompt,
  *       or a tool the request declared) → suspend; the client fulfills it and
  *       resumes with a fresh run carrying the user's response
+ *     if it called a server tool that requires approval → ask the user and
+ *       suspend; the resumed run runs it first if approved (see approval.ts)
  *     otherwise → done
  *   RUN_FINISHED
  *
@@ -93,11 +98,31 @@ async function drive(
 
   subscriber.next(aguiEvent({ type: EventType.RUN_STARTED, threadId, runId }));
 
+  // Resuming from an approval prompt: settle the calls it held back before
+  // the model's next turn, so the model sees how they went.
+  const settledResults = new Map<string, string>();
+  for (const settled of settleApprovals(options.messages)) {
+    const result = settled.run
+      ? await executeServerTool(serverTools, settled.call, abortSignal)
+      : settled.result;
+    if (abortSignal.aborted) {
+      return;
+    }
+    subscriber.next(toolCallResultEvent(settled.call, result));
+    settledResults.set(settled.call.toolCallId, result);
+  }
+
   // Frontend tools are advertised like any other tool; because they aren't
   // server tools, calling one takes the client-tool path below and suspends
   // the run.
   const frontendTools = options.frontendTools ?? new Map<string, FrontendTool>();
-  let prompt = buildPrompt(options.messages, options.persona, options.context, frontendTools);
+  let prompt = buildPrompt(
+    hideApprovalRequests(options.messages, settledResults),
+    options.persona,
+    options.context,
+    frontendTools,
+    options.expandUserText,
+  );
   const toolDefs = buildModelToolDefs(
     serverTools,
     options.clientTools,
@@ -198,28 +223,25 @@ async function drive(
     }
 
     // Answer every call we can before the model's next turn: server tools run,
-    // invalid client calls get their error back. Only `pendingCalls` are left
-    // open — the client answers those when it resumes the run, which keeps the
-    // resumed history well-formed even when the model mixed a client tool with
-    // server ones in the same turn.
+    // invalid client calls get their error back. Only `pendingCalls` and the
+    // calls held back for approval are left open — the client answers those
+    // when it resumes the run, which keeps the resumed history well-formed
+    // even when the model mixed them with server tools in the same turn.
+    const gatedCalls: CollectedToolCall[] = [];
     for (const call of turn.toolCalls) {
       const invalidReason = invalidCalls.get(call.toolCallId);
       if (invalidReason !== undefined) {
-        subscriber.next(
-          aguiEvent({
-            type: EventType.TOOL_CALL_RESULT,
-            messageId: `${call.toolCallId}-result`,
-            toolCallId: call.toolCallId,
-            content: invalidReason,
-            role: "tool",
-          }),
-        );
+        subscriber.next(toolCallResultEvent(call, invalidReason));
         prompt.push(toToolResultMessage(call, invalidReason));
         continue;
       }
 
       const tool = serverTools.get(call.toolName);
       if (!tool) {
+        continue;
+      }
+      if (tool.requiresApproval) {
+        gatedCalls.push(call);
         continue;
       }
 
@@ -230,22 +252,18 @@ async function drive(
       // Hidden tools (e.g. skills plumbing) feed their result back to the model
       // but emit no AG-UI result event — matching the suppressed start/args/end.
       if (!tool.hidden) {
-        subscriber.next(
-          aguiEvent({
-            type: EventType.TOOL_CALL_RESULT,
-            messageId: `${call.toolCallId}-result`,
-            toolCallId: call.toolCallId,
-            content: result,
-            role: "tool",
-          }),
-        );
+        subscriber.next(toolCallResultEvent(call, result));
       }
       prompt.push(toToolResultMessage(call, result));
     }
 
+    if (gatedCalls.length > 0) {
+      requestApproval(gatedCalls, subscriber);
+    }
+
     // Suspend the run for the client: it renders the surface / HITL prompt and
     // resumes with the user's response. The TOOL_CALL_* events are already out.
-    if (pendingCalls.length > 0) {
+    if (pendingCalls.length > 0 || gatedCalls.length > 0) {
       break;
     }
   }
@@ -269,6 +287,16 @@ async function executeServerTool(
   } catch (error) {
     return `Error: ${error instanceof Error ? error.message : String(error)}`;
   }
+}
+
+function toolCallResultEvent(call: CollectedToolCall, result: string): BaseEvent {
+  return aguiEvent({
+    type: EventType.TOOL_CALL_RESULT,
+    messageId: `${call.toolCallId}-result`,
+    toolCallId: call.toolCallId,
+    content: result,
+    role: "tool",
+  });
 }
 
 function toToolResultMessage(call: CollectedToolCall, result: string): ModelMessage {

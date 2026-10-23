@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { get_encoding, type Tiktoken } from "tiktoken";
 
 import { safeStringify } from "../shared/utils.ts";
+import { elideSkillContents, findSkillContents } from "../skills/content.ts";
 
 import type {
   ModelCallOptions,
@@ -20,6 +21,10 @@ import type {
  *
  * This keeps multi-turn, tool-heavy runs inside the model's context window
  * without losing the thread of what happened earlier.
+ *
+ * Skill instructions (`<skill_content>` blocks) in the summarized portion are
+ * kept verbatim after the summary: they are standing guidance, and a summary
+ * of them would silently weaken the skill.
  *
  * The client resends the whole history every run, so each thread's latest
  * summary is remembered ({@link CompactionCache}) and reapplied while the
@@ -224,10 +229,11 @@ export async function compactPromptIfNeeded(
     return current; // only the existing summary would be re-summarized
   }
 
-  const summary = await summarize(older, model, abortSignal);
-  if (!summary) {
+  const brief = await summarize(older, model, abortSignal);
+  if (!brief) {
     return current;
   }
+  const summary = withSkillContents(brief, older);
 
   // Extend the coverage of a summary already at the front (from the cache or
   // an earlier iteration of this run) by the original messages now folded in.
@@ -268,6 +274,19 @@ function summaryMessage(summary: string, coverage: Omit<CachedSummary, "summary"
   };
   summaryCoverage.set(message, { covered: coverage.covered, hash: coverage.hash });
   return message;
+}
+
+/** Appends the skill instructions loaded in `older` (or kept by an earlier summary) to `brief`. */
+function withSkillContents(brief: string, older: ModelMessage[]): string {
+  const skills = findSkillContents(older.map(messageText));
+  if (skills.size === 0) {
+    return brief;
+  }
+  return [
+    brief,
+    "Skills loaded earlier in the conversation, still in effect:",
+    ...skills.values(),
+  ].join("\n\n");
 }
 
 /** Hashes messages onto `seed` one at a time, so coverage can be extended later. */
@@ -358,9 +377,15 @@ async function collectText(stream: ReadableStream<ModelStreamPart>): Promise<str
   return text;
 }
 
-/** Renders messages as plain text for the summarizer to read. */
+/**
+ * Renders messages as plain text for the summarizer to read. Skill
+ * instructions are kept verbatim anyway, so the summarizer only sees their
+ * names.
+ */
 function serialize(messages: ModelMessage[]): string {
-  return messages.map((message) => `## ${message.role}\n${messageText(message)}`).join("\n\n");
+  return messages
+    .map((message) => `## ${message.role}\n${elideSkillContents(messageText(message))}`)
+    .join("\n\n");
 }
 
 /** Extracts a flat text view of a message for estimation and serialization. */
