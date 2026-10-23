@@ -1,11 +1,18 @@
+import { resolve } from "node:path";
+
 import { startDemoHttpServer } from "../http.ts";
+
+const DEFAULT_CLIENTS_FILE = ".mcp-clients.json";
 
 // Prefixed env names so `pnpm dev` can run this next to agui-server (which owns
 // PORT / HOST) without the two fighting over the same port.
+const clientsFile = process.env.MCP_DEMO_CLIENTS_FILE?.trim() || DEFAULT_CLIENTS_FILE;
 const server = await startDemoHttpServer({
   port: Number(process.env.MCP_DEMO_PORT ?? 3901),
   host: process.env.MCP_DEMO_HOST,
-  oauth: process.env.MCP_DEMO_OAUTH !== "false",
+  oauth: process.env.MCP_DEMO_OAUTH !== "false" && {
+    clientsFile: clientsFile === "off" ? undefined : resolve(clientsFile),
+  },
   stateless: process.env.MCP_DEMO_STATELESS === "true",
 });
 

@@ -32,9 +32,15 @@ authorization server, built on the SDK's `mcpAuthRouter` (`src/oauth.ts`):
 - `/mcp` requires `Authorization: Bearer <token>` with scope `mcp:tools` and
   answers 401 otherwise
 
-Clients, codes, and tokens live in memory. Restarting the demo invalidates
-them, and the agent asks for authorization again. Access tokens last an hour
-(`oauth: { accessTokenTtlSeconds }` changes that).
+Codes and tokens live in memory: restarting the demo invalidates them, and the
+agent asks for authorization again. Registered clients are kept in memory too,
+unless `oauth: { clientsFile }` names a JSON file to persist them to; the CLI
+defaults that to `.mcp-clients.json`. Persisting clients matters because
+agui-server stores its registration and keeps reusing the `client_id`. If the
+demo forgot that client, `/authorize` would answer
+`{"error":"invalid_client"}`, and nothing would send the agent back to
+register again. Access tokens last an hour (`oauth: { accessTokenTtlSeconds }`
+changes that).
 
 ## Run
 
@@ -51,7 +57,8 @@ pnpm dev:mcp            # from the repo root, with --watch
 pnpm --filter @ai-chat/mcp-server-demo start
 
 # Optional env: MCP_DEMO_PORT, MCP_DEMO_HOST, MCP_DEMO_OAUTH=false (no auth),
-# MCP_DEMO_STATELESS=true
+# MCP_DEMO_STATELESS=true, MCP_DEMO_CLIENTS_FILE (registered clients file,
+# default .mcp-clients.json; "off" keeps them in memory)
 MCP_DEMO_PORT=3902 MCP_DEMO_OAUTH=false pnpm --filter @ai-chat/mcp-server-demo start
 ```
 

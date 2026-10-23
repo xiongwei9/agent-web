@@ -1,4 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
 import {
@@ -44,8 +46,21 @@ interface IssuedRefreshToken {
   resource?: URL;
 }
 
-class InMemoryClientsStore implements OAuthRegisteredClientsStore {
-  private readonly clients = new Map<string, OAuthClientInformationFull>();
+/**
+ * Registered clients, optionally persisted to a JSON file. Clients that store
+ * their registration (like the agent's file OAuth store) keep sending the same
+ * `client_id`, and `/authorize` rejects one it doesn't know with
+ * `invalid_client` — an error the client never sees, since it isn't redirected
+ * back. Persisting registrations lets those clients survive a demo restart.
+ */
+class DemoClientsStore implements OAuthRegisteredClientsStore {
+  private readonly clients: Map<string, OAuthClientInformationFull>;
+  private readonly path: string | undefined;
+
+  constructor(path: string | undefined) {
+    this.path = path;
+    this.clients = new Map(path ? Object.entries(readClients(path)) : []);
+  }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
     return this.clients.get(clientId);
@@ -60,21 +75,60 @@ class InMemoryClientsStore implements OAuthRegisteredClientsStore {
       client_id_issued_at: Math.floor(Date.now() / 1000),
     };
     this.clients.set(registered.client_id, registered);
+    if (this.path) {
+      writeClients(this.path, Object.fromEntries(this.clients));
+    }
     return registered;
   }
 }
 
+function readClients(path: string): Record<string, OAuthClientInformationFull> {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, OAuthClientInformationFull>;
+    }
+  } catch {
+    // Fall through: an unreadable file is treated as empty and rewritten.
+  }
+  console.warn(`[mcp-server-demo] ignoring malformed clients file ${path}`);
+  return {};
+}
+
+function writeClients(path: string, clients: Record<string, OAuthClientInformationFull>): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, JSON.stringify(clients, null, 2), { mode: 0o600 });
+  renameSync(temp, path);
+}
+
+export interface DemoOAuthProviderOptions {
+  accessTokenTtlSeconds: number;
+  /** JSON file to persist registered clients to; omitted, they live in memory. */
+  clientsFile?: string;
+}
+
 /**
- * A minimal in-memory OAuth 2.1 authorization server for the demo. The SDK's
+ * A minimal OAuth 2.1 authorization server for the demo. The SDK's
  * `mcpAuthRouter` handles metadata, dynamic client registration, PKCE checks,
  * and request validation; this class only stores clients, codes, and tokens,
  * and renders a consent page the user has to approve.
  *
- * Everything lives in memory, so restarting the demo invalidates every client
- * and token and the agent has to authorize again.
+ * Registered clients can be persisted to a file; codes and tokens always live
+ * in memory, so restarting the demo invalidates every token and the agent has
+ * to authorize again (with the client it already registered).
  */
 export class DemoOAuthProvider implements OAuthServerProvider {
-  readonly clientsStore = new InMemoryClientsStore();
+  readonly clientsStore: DemoClientsStore;
 
   private readonly pending = new Map<string, PendingAuthorization>();
   private readonly codes = new Map<string, IssuedCode>();
@@ -82,8 +136,9 @@ export class DemoOAuthProvider implements OAuthServerProvider {
   private readonly refreshTokens = new Map<string, IssuedRefreshToken>();
   private readonly accessTokenTtlSeconds: number;
 
-  constructor(accessTokenTtlSeconds: number) {
-    this.accessTokenTtlSeconds = accessTokenTtlSeconds;
+  constructor(options: DemoOAuthProviderOptions) {
+    this.accessTokenTtlSeconds = options.accessTokenTtlSeconds;
+    this.clientsStore = new DemoClientsStore(options.clientsFile);
   }
 
   /** Shows the consent page; the decision comes back via {@link handleConsent}. */

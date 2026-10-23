@@ -28,7 +28,13 @@ export interface DemoHttpServerOptions extends DemoServerOptions {
    * server (discovery metadata, dynamic client registration, PKCE, refresh
    * tokens) and asks the user to approve each client on a consent page.
    */
-  oauth?: boolean | { accessTokenTtlSeconds?: number };
+  oauth?:
+    | boolean
+    | {
+        accessTokenTtlSeconds?: number;
+        /** JSON file to persist registered clients to; omitted, they live in memory. */
+        clientsFile?: string;
+      };
   /**
    * Serve without sessions: a fresh MCP server per POST, no `Mcp-Session-Id`,
    * and no standalone GET stream. Defaults to false (stateful sessions).
@@ -128,10 +134,11 @@ export async function startDemoHttpServer(
 
   const mcpHandlers: RequestHandler[] = [];
   if (options.oauth) {
-    const provider = new DemoOAuthProvider(
-      (typeof options.oauth === "object" && options.oauth.accessTokenTtlSeconds) ||
-        DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
-    );
+    const oauth = typeof options.oauth === "object" ? options.oauth : {};
+    const provider = new DemoOAuthProvider({
+      accessTokenTtlSeconds: oauth.accessTokenTtlSeconds || DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
+      clientsFile: oauth.clientsFile,
+    });
     app.use(
       mcpAuthRouter({
         provider,
