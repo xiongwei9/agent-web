@@ -71,12 +71,14 @@ const askUserSchema = z
   .object({
     question: z.string().min(1),
     details: z.string().optional(),
-    options: z.array(optionSchema).min(1).optional(),
+    // Models often send `[]` rather than omitting the field for a free-text
+    // question; the client renders an empty list as free text, so accept it.
+    options: z.array(optionSchema).optional(),
     allowMultiple: z.boolean().optional(),
     allowOther: z.boolean().optional(),
     placeholder: z.string().optional(),
   })
-  .refine((value) => !value.allowMultiple || value.options !== undefined, {
+  .refine((value) => !value.allowMultiple || (value.options?.length ?? 0) > 0, {
     message: "`allowMultiple` only applies when `options` are provided",
     path: ["allowMultiple"],
   });
@@ -100,7 +102,7 @@ function askUserToolDef(): ModelFunctionTool {
       "information only the user has (a missing value, a preference, which of several paths to " +
       "take). The run pauses and resumes with the answer as this tool's result: " +
       '{"answer": "..."} — an array of values when `allowMultiple` is set, or ' +
-      '{"cancelled": true} if the user answered in chat instead.',
+      '{"cancelled": true, "reason": "..."} if the user skipped the question.',
     inputSchema: {
       type: "object",
       properties: {
@@ -116,7 +118,7 @@ function askUserToolDef(): ModelFunctionTool {
         options: {
           type: "array",
           description:
-            "Predefined answers, when the answer is a choice from a known set. Omit for free text.",
+            "Predefined answers, when the answer is a choice from a known set. Omit (or leave empty) for free text.",
           items: {
             type: "object",
             properties: {
@@ -245,7 +247,7 @@ Two tools hand control back to the user and pause you until they respond: \`${HI
 ## \`${HITL_ASK_USER_TOOL_NAME}\`
 Use it when you are genuinely blocked on something only the user can tell you. Supply \`options\` when the answer is a choice from a known set (add \`allowMultiple\` for several, \`allowOther\` to also accept something you didn't list); omit them for free text.
 
-Result: \`{"answer": "<value>"}\`, or \`{"answer": ["<value>", …]}\` for a multi-select. If the user replied in chat instead of using the prompt you get \`{"cancelled": true}\` — read their message and carry on rather than re-opening the same question.
+Result: \`{"answer": "<value>"}\`, or \`{"answer": ["<value>", …]}\` for a multi-select. If the user skipped the question you get \`{"cancelled": true, "reason": "..."}\` — carry on with a sensible default, or ask in plain text, rather than re-opening the same prompt.
 
 ## \`${HITL_REQUEST_APPROVAL_TOOL_NAME}\`
 Use it *before* anything consequential or hard to undo: writing or deleting data, spending money, sending a message as the user, running a destructive command. Spell out in \`summary\` what will happen, and put the facts worth checking in \`details\`.
