@@ -22,11 +22,11 @@ client ──POST /agui──▶ agui-server (Fastify)
                      AG-UI events ──stream──▶ client
 ```
 
-server 自身不包含 agent logic。它会使用已加载的 config 调用 [`createAgentRunner`](packages/agents/src/runtime/agent.ts)，并将得到的 RxJS `Observable<BaseEvent>` 以 Server-Sent Events 的形式传给 client。
+server 自身不包含 agent logic。它会使用已加载的 config 调用 [`createAgent`](packages/agents/src/agent.ts)，并将得到的 RxJS `Observable<BaseEvent>` 以 Server-Sent Events 的形式传给 client。
 
 ### Agent runtime
 
-[`packages/agents/src/runtime/`](packages/agents/src/runtime/) 自行实现 agentic loop：流式调用 model → 发出 `TEXT_MESSAGE_*` / `TOOL_CALL_*` events → 执行 server-side tools 并继续循环，遇到 client-side tool（A2UI、HITL 或 request 声明的 tools）时挂起 run，等待 client 恢复。设置 `MODEL_API_KEY` 即可启用；未配置时 server 启动失败。
+[`packages/agents/src/loop/`](packages/agents/src/loop/) 自行实现 agentic loop：流式调用 model → 发出 `TEXT_MESSAGE_*` / `TOOL_CALL_*` events → 执行 server-side tools 并继续循环，遇到 client-side tool（A2UI、HITL 或 request 声明的 tools）时挂起 run，等待 client 恢复。设置 `MODEL_API_KEY` 即可启用；未配置时 server 启动失败。
 
 ### System prompt、MCP 与 Skills
 
@@ -44,7 +44,7 @@ server 自身不包含 agent logic。它会使用已加载的 config 调用 [`cr
 ### Human-in-the-Loop（HITL）
 
 agent runtime 会额外向 model 声明两个**由 client 兑现**的 tools（见
-[`runtime/hitl.ts`](packages/agents/src/runtime/hitl.ts)）：
+[`client-tools/hitl.ts`](packages/agents/src/client-tools/hitl.ts)）：
 
 | Tool | 用途 | 回给 model 的结果 |
 | --- | --- | --- |
@@ -70,7 +70,7 @@ model → ask_user / request_user_approval
 - 参数非法的 HITL 调用不会到达 client。loop 把 schema 错误当作 tool result 回灌给 model，让它当场修正后重新调用。
 - 用户可以不理会卡片、直接在输入框继续聊天。此时 [`agui-fe`](packages/agui-fe/) 会先补一条
   `{"cancelled": true}` 的 tool result；server 端的
-  [`buildPrompt`](packages/agents/src/runtime/prompt.ts) 也会为任何未被回答的 tool call 兜底补齐，
+  [`buildPrompt`](packages/agents/src/loop/prompt.ts) 也会为任何未被回答的 tool call 兜底补齐，
   避免 model API 因「有 tool call 却没有对应 tool result」而报错。
 
 ## 快速开始

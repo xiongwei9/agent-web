@@ -152,7 +152,7 @@ key or the network.
 ## Human-in-the-Loop
 
 The runtime declares two tools it never executes itself —
-`ask_user` and `request_user_approval` (`src/runtime/hitl.ts`). Calling
+`ask_user` and `request_user_approval` (`src/client-tools/hitl.ts`). Calling
 one suspends the run: the loop emits the `TOOL_CALL_*` events, finishes, and
 waits for the client to answer with a `tool` message for that `toolCallId` on the
 next run. Malformed calls are validated server-side and bounced back to the model
@@ -160,7 +160,7 @@ as a tool result, so the client only ever receives a renderable prompt, and
 `buildPrompt` backfills a cancellation result for any prompt the user never
 answered.
 
-The A2UI render tool (`src/runtime/a2ui.ts`) shares that suspend path
+The A2UI render tool (`src/client-tools/a2ui.ts`) shares that suspend path
 for whole agent-authored surfaces; so do frontend tools a request declares in
 `RunAgentInput.tools`.
 
@@ -168,8 +168,8 @@ for whole agent-authored surfaces; so do frontend tools a request declares in
 
 Agent Skills are packaged, on-demand capabilities following the
 [Agent Skills spec](https://github.com/anthropics/skills). The `src/skills/`
-module is purely a **document store**: it owns the `SKILL.md` files and
-discovery helpers, while `src/runtime/skills.ts` turns them into tools.
+module owns the `SKILL.md` folders and their discovery helpers (`loader.ts`),
+and `toolset.ts` turns them into tools.
 
 Each skill is a folder under `src/skills/<skill-name>/` containing:
 
