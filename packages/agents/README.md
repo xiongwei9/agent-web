@@ -71,12 +71,14 @@ model's window in tokens.
 prompt and response, tool results included, which can contain tokens. Enable it
 only where that is acceptable.
 
-`AgentConfig.debugEvents` streams each model call to the client as two AG-UI
-`CUSTOM` events (`src/loop/debug.ts`): `agent.debug.model_request` (the prompt
-as sent, system prompt included, plus the tool declarations and `toolChoice`)
-before the call, and `agent.debug.model_response` (the assistant content,
-`finishReason`, `usage`) after it, paired by `runId` + `iteration`. Like
-`debug` logging, it exposes full prompts and tool results; it's off by default.
+`AgentConfig.modelCallEvents` puts each model call into the run's event stream
+as two AG-UI `CUSTOM` events (`src/loop/debug.ts`): `agent.debug.model_request`
+(the prompt as sent, system prompt included, plus the tool declarations and
+`toolChoice`) before the call, and `agent.debug.model_response` (the assistant
+content, `finishReason`, `usage`) after it, paired by `runId` + `iteration`.
+Like `debug` logging, they carry full prompts and tool results, so it's off by
+default and the app decides where they go: `isModelCallEvent` picks them out,
+e.g. to record them or keep them from a client.
 
 A run is aborted when its Observable is unsubscribed (e.g. the HTTP client
 disconnects). Server tools get the run's `AbortSignal`: MCP calls are cancelled

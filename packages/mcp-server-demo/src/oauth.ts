@@ -43,7 +43,45 @@ interface IssuedToken {
 interface IssuedRefreshToken {
   clientId: string;
   scopes: string[];
-  resource?: URL;
+  /** The resource URL as a string, so it round-trips through the JSON file. */
+  resource?: string;
+}
+
+/**
+ * A string-keyed map that, given a path, mirrors itself to that JSON file
+ * (mode 0600) so its entries survive a demo restart. Without one it lives in
+ * memory only.
+ */
+class JsonFileMap<V> {
+  private readonly entries: Map<string, V>;
+  private readonly path: string | undefined;
+
+  /** `what` names the entries in a warning about a malformed file. */
+  constructor(path: string | undefined, what: string) {
+    this.path = path;
+    this.entries = new Map(path ? Object.entries(readJsonObject<V>(path, what)) : []);
+  }
+
+  get(key: string): V | undefined {
+    return this.entries.get(key);
+  }
+
+  set(key: string, value: V): void {
+    this.entries.set(key, value);
+    this.save();
+  }
+
+  delete(key: string): void {
+    if (this.entries.delete(key)) {
+      this.save();
+    }
+  }
+
+  private save(): void {
+    if (this.path) {
+      writeJsonObject(this.path, Object.fromEntries(this.entries));
+    }
+  }
 }
 
 /**
@@ -54,12 +92,10 @@ interface IssuedRefreshToken {
  * back. Persisting registrations lets those clients survive a demo restart.
  */
 class DemoClientsStore implements OAuthRegisteredClientsStore {
-  private readonly clients: Map<string, OAuthClientInformationFull>;
-  private readonly path: string | undefined;
+  private readonly clients: JsonFileMap<OAuthClientInformationFull>;
 
   constructor(path: string | undefined) {
-    this.path = path;
-    this.clients = new Map(path ? Object.entries(readClients(path)) : []);
+    this.clients = new JsonFileMap(path, "clients");
   }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
@@ -75,14 +111,11 @@ class DemoClientsStore implements OAuthRegisteredClientsStore {
       client_id_issued_at: Math.floor(Date.now() / 1000),
     };
     this.clients.set(registered.client_id, registered);
-    if (this.path) {
-      writeClients(this.path, Object.fromEntries(this.clients));
-    }
     return registered;
   }
 }
 
-function readClients(path: string): Record<string, OAuthClientInformationFull> {
+function readJsonObject<V>(path: string, what: string): Record<string, V> {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
@@ -95,19 +128,19 @@ function readClients(path: string): Record<string, OAuthClientInformationFull> {
   try {
     const parsed: unknown = JSON.parse(text);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-      return parsed as Record<string, OAuthClientInformationFull>;
+      return parsed as Record<string, V>;
     }
   } catch {
     // Fall through: an unreadable file is treated as empty and rewritten.
   }
-  console.warn(`[mcp-server-demo] ignoring malformed clients file ${path}`);
+  console.warn(`[mcp-server-demo] ignoring malformed ${what} file ${path}`);
   return {};
 }
 
-function writeClients(path: string, clients: Record<string, OAuthClientInformationFull>): void {
+function writeJsonObject(path: string, entries: Record<string, unknown>): void {
   mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.tmp`;
-  writeFileSync(temp, JSON.stringify(clients, null, 2), { mode: 0o600 });
+  writeFileSync(temp, JSON.stringify(entries, null, 2), { mode: 0o600 });
   renameSync(temp, path);
 }
 
@@ -115,6 +148,8 @@ export interface DemoOAuthProviderOptions {
   accessTokenTtlSeconds: number;
   /** JSON file to persist registered clients to; omitted, they live in memory. */
   clientsFile?: string;
+  /** JSON file to persist refresh tokens to; omitted, they live in memory. */
+  refreshTokensFile?: string;
 }
 
 /**
@@ -123,9 +158,11 @@ export interface DemoOAuthProviderOptions {
  * and request validation; this class only stores clients, codes, and tokens,
  * and renders a consent page the user has to approve.
  *
- * Registered clients can be persisted to a file; codes and tokens always live
- * in memory, so restarting the demo invalidates every token and the agent has
- * to authorize again (with the client it already registered).
+ * Registered clients and refresh tokens can be persisted to files; codes and
+ * access tokens always live in memory. Restarting the demo with both files
+ * kept invalidates the access tokens only: the agent's next call gets 401, it
+ * refreshes, and carries on without authorizing again. Without the files every
+ * token is gone and the agent has to authorize again.
  */
 export class DemoOAuthProvider implements OAuthServerProvider {
   readonly clientsStore: DemoClientsStore;
@@ -133,12 +170,13 @@ export class DemoOAuthProvider implements OAuthServerProvider {
   private readonly pending = new Map<string, PendingAuthorization>();
   private readonly codes = new Map<string, IssuedCode>();
   private readonly accessTokens = new Map<string, IssuedToken>();
-  private readonly refreshTokens = new Map<string, IssuedRefreshToken>();
+  private readonly refreshTokens: JsonFileMap<IssuedRefreshToken>;
   private readonly accessTokenTtlSeconds: number;
 
   constructor(options: DemoOAuthProviderOptions) {
     this.accessTokenTtlSeconds = options.accessTokenTtlSeconds;
     this.clientsStore = new DemoClientsStore(options.clientsFile);
+    this.refreshTokens = new JsonFileMap(options.refreshTokensFile, "refresh tokens");
   }
 
   /** Shows the consent page; the decision comes back via {@link handleConsent}. */
@@ -220,7 +258,11 @@ export class DemoOAuthProvider implements OAuthServerProvider {
       throw new InvalidGrantError("Invalid refresh token");
     }
     this.refreshTokens.delete(refreshToken);
-    return this.issueTokens(client.client_id, scopes ?? issued.scopes, issued.resource);
+    return this.issueTokens(
+      client.client_id,
+      scopes ?? issued.scopes,
+      issued.resource === undefined ? undefined : new URL(issued.resource),
+    );
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
@@ -254,7 +296,7 @@ export class DemoOAuthProvider implements OAuthServerProvider {
       resource,
       expiresAt: Date.now() + this.accessTokenTtlSeconds * 1000,
     });
-    this.refreshTokens.set(refreshToken, { clientId, scopes, resource });
+    this.refreshTokens.set(refreshToken, { clientId, scopes, resource: resource?.href });
     return {
       access_token: accessToken,
       token_type: "Bearer",

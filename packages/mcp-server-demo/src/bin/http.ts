@@ -1,17 +1,31 @@
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { startDemoHttpServer } from "../http.ts";
 
-const DEFAULT_CLIENTS_FILE = ".mcp-clients.json";
+/** The repo's `data/`, next to the other local state. Gitignored. */
+const DATA_DIR = new URL("../../../../data/", import.meta.url);
+
+/**
+ * Where the OAuth server keeps some state: the env value (relative to the
+ * working directory; `off` keeps it in memory), else `fileName` in `data/`.
+ */
+function stateFile(value: string | undefined, fileName: string): string | undefined {
+  const path = value?.trim() || fileURLToPath(new URL(fileName, DATA_DIR));
+  return path === "off" ? undefined : resolve(path);
+}
 
 // Prefixed env names so `pnpm dev` can run this next to agui-server (which owns
 // PORT / HOST) without the two fighting over the same port.
-const clientsFile = process.env.MCP_DEMO_CLIENTS_FILE?.trim() || DEFAULT_CLIENTS_FILE;
 const server = await startDemoHttpServer({
   port: Number(process.env.MCP_DEMO_PORT ?? 3901),
   host: process.env.MCP_DEMO_HOST,
   oauth: process.env.MCP_DEMO_OAUTH !== "false" && {
-    clientsFile: clientsFile === "off" ? undefined : resolve(clientsFile),
+    clientsFile: stateFile(process.env.MCP_DEMO_CLIENTS_FILE, "mcp-demo-clients.json"),
+    refreshTokensFile: stateFile(
+      process.env.MCP_DEMO_REFRESH_TOKENS_FILE,
+      "mcp-demo-refresh-tokens.json",
+    ),
   },
   stateless: process.env.MCP_DEMO_STATELESS === "true",
 });

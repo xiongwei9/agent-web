@@ -4,8 +4,9 @@ import { describe, test } from "node:test";
 import { loadConfig } from "../src/config.ts";
 
 describe("loadConfig defaults", () => {
-  test("fills in the agent's settings", () => {
-    const { agent } = loadConfig({ MODEL_API_KEY: "key", MCP_OAUTH_STORE_PATH: "off" });
+  test("fills in the agent's and the server's settings", () => {
+    const config = loadConfig({ MODEL_API_KEY: "key", MCP_OAUTH_STORE_PATH: "off" });
+    const { agent } = config;
 
     assert.deepEqual(agent.languageModel, {
       provider: "openai",
@@ -18,7 +19,10 @@ describe("loadConfig defaults", () => {
     });
     assert.deepEqual(agent.execution, { maxToolIterations: 16 });
     assert.deepEqual(agent.codeMode, { enabled: false, timeoutMs: 30_000, toolDiscovery: "auto" });
-    assert.equal(agent.debugEvents, false);
+    assert.equal(config.debugEvents, false);
+    assert.match(config.sessionsDir ?? "", /[/\\]data[/\\]sessions$/);
+    // Recording needs the model calls even when the client doesn't get them.
+    assert.equal(agent.modelCallEvents, true);
   });
 
   test("a base URL without a provider means an OpenAI-compatible gateway", () => {
@@ -32,21 +36,25 @@ describe("loadConfig defaults", () => {
   });
 
   test("set values win", () => {
-    const { agent } = loadConfig({
+    const config = loadConfig({
       MODEL_PROVIDER: "anthropic",
       MODEL_NAME: "claude-sonnet-4-5",
       MODEL_API: "chat",
       MODEL_CONTEXT_WINDOW: "500000",
       AGENT_MAX_TOOL_ITERATIONS: "4",
       AGENT_DEBUG_EVENTS: "on",
+      SESSIONS_DIR: "off",
       MCP_OAUTH_STORE_PATH: "off",
     });
+    const { agent } = config;
 
     assert.equal(agent.languageModel.model, "claude-sonnet-4-5");
     assert.equal(agent.languageModel.api, "chat");
     assert.equal(agent.languageModel.contextWindow, 500_000);
     assert.equal(agent.execution.maxToolIterations, 4);
-    assert.equal(agent.debugEvents, true);
+    assert.equal(config.debugEvents, true);
+    assert.equal(config.sessionsDir, undefined);
+    assert.equal(agent.modelCallEvents, true);
   });
 });
 

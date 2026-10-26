@@ -41,6 +41,7 @@ const DEFAULT_SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url)
  * `mcp` exposes the MCP servers' connection state and OAuth flow to the app.
  * Both are per user: a run's `context.userId` picks whose MCP connections and
  * tokens it uses.
+
  *
  * Throws at construction when `config.languageModel.apiKey` is missing, so a
  * misconfigured server fails at startup rather than on the first request.
@@ -103,7 +104,7 @@ export function createAgent(config: AgentConfig): Agent {
             compaction,
             compactionCache,
             logger,
-            debugEvents: config.debugEvents,
+            modelCallEvents: config.modelCallEvents,
           }).subscribe(subscriber);
         },
         (error) => {

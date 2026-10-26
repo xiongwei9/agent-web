@@ -168,7 +168,7 @@ describe("runAgentLoop abort", () => {
   });
 });
 
-describe("runAgentLoop debug events", () => {
+describe("runAgentLoop model call events", () => {
   test("emits each model call's request and response when enabled", async () => {
     const tool = counterTool();
     const { model } = scriptedModel([
@@ -182,7 +182,7 @@ describe("runAgentLoop debug events", () => {
       model,
       persona: "You count.",
       serverTools: new Map([[tool.name, tool]]),
-      debugEvents: true,
+      modelCallEvents: true,
     });
 
     const debug = events.filter((event) => event.type === EventType.CUSTOM);

@@ -18,7 +18,7 @@ export interface StartAppOptions {
 /**
  * Builds the app like `src/index.ts` does. The OAuth store defaults to memory
  * and the session secret is fixed, so tests never touch a developer's real
- * `.mcp-oauth.json` or `.session-secret`.
+ * `data/mcp-oauth.json` or `data/session-secret`.
  */
 export async function startApp(
   mcpServers?: Record<string, unknown>,
@@ -31,6 +31,8 @@ export async function startApp(
     SESSION_SECRET,
     MCP_SERVERS: mcpServers ? JSON.stringify(mcpServers) : undefined,
     MCP_OAUTH_STORE_PATH: storePath,
+    // Never record into the repo's data/sessions.
+    SESSIONS_DIR: "off",
     ...env,
   });
   const app = await buildApp({ config });

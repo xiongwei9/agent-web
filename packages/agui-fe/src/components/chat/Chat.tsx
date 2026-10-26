@@ -1,7 +1,8 @@
 import { Bug, Diamond, TriangleAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useChat } from "../../hooks/useChat";
+import { useSessions } from "../../hooks/useSessions";
 import { useSkills } from "../../hooks/useSkills";
 import { DebugPanel } from "../debug/DebugPanel";
 import { HitlDock } from "../hitl/HitlDock";
@@ -9,6 +10,7 @@ import { Button } from "../ui/Button";
 import { Composer } from "./Composer";
 import { McpStatusBanner } from "./McpStatusBanner";
 import { MessageList } from "../messages/MessageList";
+import { SessionList } from "../sessions/SessionList";
 
 /** How close to the bottom (px) still counts as "following" the stream. */
 const STICK_THRESHOLD = 48;
@@ -18,6 +20,7 @@ const DEBUG_OPEN_KEY = "agui-fe:debug-open";
 
 export function Chat() {
   const {
+    threadId,
     messages,
     status,
     error,
@@ -28,8 +31,11 @@ export function Chat() {
     respondToToolCall,
     stop,
     reset,
+    openThread,
   } = useChat();
   const skills = useSkills();
+  const sessions = useSessions();
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [debugOpen, setDebugOpen] = useState(readDebugOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Whether to keep the latest message in view as the stream grows. Scrolling
@@ -43,6 +49,42 @@ export function Chat() {
       stickRef.current = true;
     }
   }, [isRunning]);
+
+  // A run that just ended has been recorded; list it (and the first time, all).
+  const { refresh: refreshSessions, load: loadSession, remove: removeSession } = sessions;
+  useEffect(() => {
+    if (!isRunning) {
+      refreshSessions();
+    }
+  }, [isRunning, refreshSessions]);
+
+  const openSession = useCallback(
+    (id: string) => {
+      if (id === threadId) {
+        return;
+      }
+      setSessionError(null);
+      loadSession(id).then(openThread, (loadError: unknown) => {
+        setSessionError(loadError instanceof Error ? loadError.message : String(loadError));
+      });
+    },
+    [threadId, loadSession, openThread],
+  );
+
+  const deleteSession = useCallback(
+    (id: string) => {
+      setSessionError(null);
+      // The open conversation goes too: stop its run and start afresh first, so
+      // nothing more of it is recorded.
+      if (id === threadId) {
+        reset();
+      }
+      removeSession(id).catch((deleteError: unknown) => {
+        setSessionError(deleteError instanceof Error ? deleteError.message : String(deleteError));
+      });
+    },
+    [threadId, reset, removeSession],
+  );
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -69,6 +111,15 @@ export function Chat() {
 
   return (
     <div className="flex h-full">
+      {sessions.enabled ? (
+        <SessionList
+          sessions={sessions.sessions}
+          activeId={threadId}
+          onOpen={openSession}
+          onDelete={deleteSession}
+          error={sessionError}
+        />
+      ) : null}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-border px-5 py-3">
           <Diamond className="size-4 fill-current text-accent" aria-hidden="true" />

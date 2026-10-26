@@ -1,6 +1,9 @@
 node_modules
+# Their old places, before they moved into data/.
 .mcp-oauth.json
 .mcp-clients.json
 .session-secret
 dist/
 .env
+# Local state: MCP OAuth tokens, the session secret, recorded sessions.
+data/

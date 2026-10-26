@@ -127,4 +127,10 @@ describe("loadSessionSecret", () => {
     assert.equal((await readFile(path, "utf8")).trim(), first);
     assert.equal(loadSessionSecret(undefined, path), first);
   });
+
+  test("creates the secret's directory", async () => {
+    const path = join(dir, "data", "session-secret");
+    const secret = loadSessionSecret(undefined, path);
+    assert.equal((await readFile(path, "utf8")).trim(), secret);
+  });
 });

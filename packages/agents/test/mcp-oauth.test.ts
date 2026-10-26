@@ -252,6 +252,33 @@ describe("McpToolRegistry token lifecycle", () => {
       "after",
     );
   });
+  test("carries on after a restart that kept the clients and refresh tokens", async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), "mcp-demo-state-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const oauth = {
+      clientsFile: join(dir, "clients.json"),
+      refreshTokensFile: join(dir, "refresh-tokens.json"),
+    };
+    const first = await startDemoHttpServer({ oauth });
+    const { port } = first;
+    const registry = openRegistry(t, { demo: { url: first.url } });
+    await authorize(registry);
+    const echo = (await registry.getTools()).get("demo__echo")!;
+    assert.equal(await echo.execute({ text: "before" }), "before");
+
+    // The access token dies with the process; the refresh token doesn't, so
+    // the 401 that follows is answered by refreshing, not by asking the user.
+    await first.close();
+    const second = await startDemoHttpServer({ oauth, port });
+    t.after(() => second.close());
+    await sleep(50); // see "reconnects when the server restarts" in mcp.test.ts
+
+    // The refresh succeeds, so the call fails only on the session the restart
+    // forgot (as in mcp.test.ts), never on authorization; the next one is fine.
+    await assert.rejects(async () => echo.execute({ text: "lost" }), /Session not found/);
+    assert.equal(await echo.execute({ text: "after" }), "after");
+    assert.deepEqual(serverInfo(registry), { id: "demo", status: "connected", toolCount: 8 });
+  });
 });
 
 describe("McpToolRegistry authorization prompt section", () => {

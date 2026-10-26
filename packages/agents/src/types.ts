@@ -287,12 +287,13 @@ export interface AgentConfig {
    */
   logger?: AgentLogger;
   /**
-   * Stream every model call's request (system prompt, messages, tool
-   * declarations) and response to the client as AG-UI `CUSTOM` events, for a
-   * debug view. Like `debug` logging, it exposes full prompts and tool results,
-   * here to whoever runs the agent. Default off.
+   * Emit every model call's request (system prompt, messages, tool
+   * declarations) and response into the run's event stream as AG-UI `CUSTOM`
+   * events (see `isModelCallEvent`), e.g. for a debug view or to record them.
+   * Like `debug` logging, they carry full prompts and tool results: the app
+   * decides whether they reach a client. Default off.
    */
-  debugEvents?: boolean;
+  modelCallEvents?: boolean;
 }
 
 /** Structurally compatible with pino / Fastify's `request.log`. */

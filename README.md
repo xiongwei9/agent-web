@@ -140,6 +140,7 @@ curl -N http://localhost:3000/agui \
 | `LOG_LEVEL` | `info` | Fastify log level。 |
 | `SYSTEM_PROMPT` | — | 覆盖默认 system prompt（`packages/agents/src/system-prompt.md`）。 |
 | `SKILLS_DIRS` | `packages/skills` | 逗号分隔的 skill 目录，靠前的目录在重名时优先；`off` 表示不加载 skills。 |
+| `SESSIONS_DIR` | `data/sessions` | 聊天记录目录，每个 thread 一个子目录，存 AG-UI messages（`session.json`）和每次模型调用（`model-calls.jsonl`），前端可以据此切换会话；`off` 表示不记录。 |
 | `MODEL_PROVIDER` | 设了 `MODEL_BASE_URL` 时为 `openai-compatible`，否则 `openai` | `openai` \| `openai-compatible` \| `anthropic` \| `google`。 |
 | `MODEL_API` | `responses` | OpenAI SDK mode：`responses` 或 `chat`，仅 OpenAI providers 使用；不支持 Responses API 的 gateway 需设为 `chat`。 |
 | `MODEL_API_KEY` | —（必填） | language model 的 API key。 |
@@ -149,6 +150,8 @@ curl -N http://localhost:3000/agui \
 | `AGENT_MAX_TOOL_ITERATIONS` | `16` | 每次 run 的 tool-call iterations 上限。 |
 | `AGENT_DEBUG_EVENTS` | `off` | `on` 时把每次模型调用（system prompt、messages、tool call/result、tool 声明、响应）作为 AG-UI `CUSTOM` 事件推给前端的 Debug 面板；会把完整 prompt 暴露给浏览器，仅用于开发。 |
 | `MCP_SERVERS` | — | 作为 server-side tools 暴露的 MCP servers 的 JSON map。 |
+
+本地状态默认都存放在仓库根目录的 `data/`（已 gitignore）：MCP OAuth token（`mcp-oauth.json`）、session cookie 的签名密钥（`session-secret`）、聊天记录（`sessions/`），以及 demo MCP server 注册的 client 和签发的 refresh token（`mcp-demo-clients.json`、`mcp-demo-refresh-tokens.json`，有了它们，重启 demo 不用重新授权）。
 
 ## 开发
 

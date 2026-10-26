@@ -52,6 +52,9 @@ Optional configuration. Every default lives in `src/config.ts`, and
 - `SKILLS_DIRS` lists the directories of Agent Skills, comma-separated and
   relative to the working directory; an earlier one wins a name clash. Unset,
   it's the repo's `packages/skills/`; `off` means no skills
+- `SESSIONS_DIR` is where conversations are recorded (see
+  [Recorded conversations](#recorded-conversations)). Relative to the working
+  directory; unset, it's the repo's `data/sessions/`; `off` records nothing
 
 `MCP_SERVERS` may be either a server map or an object with `mcpServers` /
 `servers`. Remote servers use `url` and default to Streamable HTTP (the
@@ -76,8 +79,8 @@ user to the banner. `MCP_OAUTH_REDIRECT_URL` overrides the callback URL sent to
 the authorization server (default `http://localhost:$PORT/mcp/oauth/callback`);
 it must still reach this route.
 
-Tokens persist in `MCP_OAUTH_STORE_PATH` (default `.mcp-oauth.json` in the
-working directory, gitignored), so a restart, including `--watch` reloads,
+Tokens persist in `MCP_OAUTH_STORE_PATH` (default the repo's
+`data/mcp-oauth.json`, gitignored), so a restart, including `--watch` reloads,
 doesn't mean authorizing again. The file holds plain-text tokens with mode 0600.
 Set `off` to keep them in memory only. Each user's tokens are stored under
 their own key.
@@ -91,7 +94,7 @@ in another browser's id. A user is a browser: clearing cookies or switching
 browsers means authorizing MCP servers again.
 
 `SESSION_SECRET` is the signing key. Unset, one is generated on first start and
-kept in `.session-secret` (mode 0600, gitignored) so sessions survive
+kept in the repo's `data/session-secret` (mode 0600, gitignored) so sessions survive
 restarts. Set it explicitly in production, and keep it stable: changing it signs
 everyone out of their MCP authorizations. A frontend on another origin must send
 requests with `credentials: "include"`; CORS allows credentials.
@@ -112,6 +115,33 @@ MCP_SERVERS='{
 The runtime maps AG-UI `messages` and `tools` onto the model prompt, then
 streams model text and function tool calls back as AG-UI events.
 
+## Recorded conversations
+
+With `SESSIONS_DIR` set, every run is recorded into a folder per thread,
+`<SESSIONS_DIR>/<threadId>/` ([`src/conversations/`](src/conversations/)). The
+frontend calls them sessions; the code calls them conversations, to keep them
+apart from the cookie session above.
+
+- `session.json`: the conversation as AG-UI messages, plus `title` (the first
+  user message), `createdAt`, `updatedAt` and the `userId` whose runs recorded
+  it. Written when a run starts and again when it ends, however it ends. The
+  end state is the run's events reduced onto `RunAgentInput.messages` by
+  `@ag-ui/client` itself, so a reopened conversation matches what the browser
+  showed.
+- `model-calls.jsonl`: every model call, appended as it happens, one of the
+  agent's model call events per line. To have them, the server turns on the
+  agent's `modelCallEvents` whenever it records; `AGENT_DEBUG_EVENTS` only
+  decides whether the client gets them too.
+
+`GET /sessions` lists the session user's conversations, `GET /sessions/:id`
+returns one for the frontend to reopen, and `DELETE /sessions/:id` deletes its
+folder. A conversation belongs to the user who recorded it; to anyone else it
+reads as missing, and their runs on its thread aren't recorded. Since a user is
+a browser, clearing cookies or changing `SESSION_SECRET` leaves the old
+conversations on disk but out of reach. A run still going on a deleted
+conversation records nothing more. A thread id that isn't a plain name
+(`[A-Za-z0-9_-]`, up to 128 characters) isn't recorded.
+
 ## Scripts
 
 ```sh
@@ -128,6 +158,7 @@ pnpm --filter @ai-chat/agui-server typecheck
 - `GET /mcp/servers` the session user's MCP server status; a `needs_auth` server carries its `authorizationUrl`
 - `GET /mcp/oauth/callback` OAuth redirect target for MCP authorization servers
 - `GET /skills` the installed Agent Skills; a message starting with `/<name>` activates one
+- `GET /sessions`, `GET /sessions/:id`, `DELETE /sessions/:id` the session user's recorded conversations
 - `GET /docs` Swagger UI
 - `GET /docs/json` OpenAPI JSON
 

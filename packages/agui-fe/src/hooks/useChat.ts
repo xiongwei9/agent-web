@@ -1,6 +1,6 @@
 import { HttpAgent } from "@ag-ui/client";
 import type { Message, RunAgentInput } from "@ag-ui/core";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { formatA2uiUserMessage, type A2uiActionPayload } from "../lib/a2ui";
 import { AGUI_URL } from "../lib/api";
@@ -25,6 +25,13 @@ class SessionHttpAgent extends HttpAgent {
 
 export type ChatStatus = "idle" | "running";
 
+/** A conversation to show: a fresh one, or a recorded session reopened. */
+export interface ChatThread {
+  id: string;
+  messages: Message[];
+  modelCalls: ModelCall[];
+}
+
 /** A Human-in-the-Loop prompt the suspended run is waiting on. */
 export interface PendingPrompt {
   toolCallId: string;
@@ -32,6 +39,8 @@ export interface PendingPrompt {
 }
 
 export interface UseChat {
+  /** The thread id, which is also its recorded session's id. */
+  threadId: string;
   messages: Message[];
   status: ChatStatus;
   error: string | null;
@@ -58,6 +67,8 @@ export interface UseChat {
   stop: () => void;
   /** Clear the conversation and start a fresh thread. */
   reset: () => void;
+  /** Switch to a recorded session, to read it or carry on with it. */
+  openThread: (thread: ChatThread) => void;
 }
 
 /**
@@ -71,8 +82,8 @@ export function useChat(): UseChat {
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
-  // Bumped by reset() to force a brand-new thread + agent instance.
-  const [threadGeneration, newThread] = useReducer((n: number) => n + 1, 0);
+  // Replaced by reset()/openThread() to start a new agent instance on it.
+  const [thread, setThread] = useState<ChatThread>(newThread);
 
   const agentRef = useRef<HttpAgent | null>(null);
   // Latest messages, readable from callbacks without making them depend on state.
@@ -81,14 +92,15 @@ export function useChat(): UseChat {
   useEffect(() => {
     const agent = new SessionHttpAgent({
       url: AGUI_URL,
-      threadId: uid("thread"),
+      threadId: thread.id,
+      initialMessages: thread.messages,
     });
     agentRef.current = agent;
-    messagesRef.current = [];
-    setMessages([]);
+    messagesRef.current = thread.messages;
+    setMessages(thread.messages);
     setStatus("idle");
     setError(null);
-    setModelCalls([]);
+    setModelCalls(thread.modelCalls);
 
     const subscription = agent.subscribe({
       onMessagesChanged: ({ messages: next }) => {
@@ -116,7 +128,7 @@ export function useChat(): UseChat {
       agent.abortRun();
       agentRef.current = null;
     };
-  }, [threadGeneration]);
+  }, [thread]);
 
   const pendingPrompt = useMemo(() => {
     if (status === "running") {
@@ -198,10 +210,16 @@ export function useChat(): UseChat {
 
   const reset = useCallback(() => {
     agentRef.current?.abortRun();
-    newThread();
+    setThread(newThread());
+  }, []);
+
+  const openThread = useCallback((next: ChatThread) => {
+    agentRef.current?.abortRun();
+    setThread(next);
   }, []);
 
   return {
+    threadId: thread.id,
     messages,
     status,
     error,
@@ -212,5 +230,10 @@ export function useChat(): UseChat {
     respondToToolCall,
     stop,
     reset,
+    openThread,
   };
+}
+
+function newThread(): ChatThread {
+  return { id: uid("thread"), messages: [], modelCalls: [] };
 }

@@ -2,7 +2,7 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import { createAgent } from "@ai-chat/agents";
+import { createAgent, isModelCallEvent, type AgentRunner } from "@ai-chat/agents";
 import fastify, { type FastifyServerOptions } from "fastify";
 import {
   hasZodFastifySchemaValidationErrors,
@@ -12,11 +12,14 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
+import { filter } from "rxjs";
 
 import { aguiRoutes } from "./routes/agui.ts";
 import type { AppConfig } from "./config.ts";
+import { ConversationStore } from "./conversations/store.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
+import { sessionsRoutes } from "./routes/sessions.ts";
 import { skillsRoutes } from "./routes/skills.ts";
 import { loadSessionSecret } from "./session.ts";
 
@@ -91,6 +94,7 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
         { name: "ag-ui", description: "AG-UI protocol endpoints" },
         { name: "mcp", description: "MCP server status and OAuth" },
         { name: "skills", description: "Agent Skills" },
+        { name: "sessions", description: "Recorded conversations" },
       ],
     },
     transform: jsonSchemaTransform,
@@ -108,9 +112,25 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
   const agent = createAgent({ ...config.agent, logger: app.log });
 
   await app.register(healthRoutes);
-  await app.register(aguiRoutes, { runAgent: agent.run });
+  const conversations = config.sessionsDir
+    ? new ConversationStore(config.sessionsDir, app.log)
+    : undefined;
+  // A run is recorded while its model call events are still in the stream;
+  // the client gets them only with AGENT_DEBUG_EVENTS on.
+  const runAgent: AgentRunner = (input, context) => {
+    const events$ = agent.run(input, context);
+    const recorded$ = conversations
+      ? conversations.record(input, context?.userId, events$)
+      : events$;
+    return config.debugEvents
+      ? recorded$
+      : recorded$.pipe(filter((event) => !isModelCallEvent(event)));
+  };
+
+  await app.register(aguiRoutes, { runAgent });
   await app.register(mcpRoutes, { mcp: agent.mcp });
   await app.register(skillsRoutes, { skills: agent.skills });
+  await app.register(sessionsRoutes, { conversations });
 
   // MCP connections are per user and open on a user's first request (the
   // frontend polls `GET /mcp/servers` on load), so there is nothing to warm up.

@@ -34,6 +34,11 @@ export interface DemoHttpServerOptions extends DemoServerOptions {
         accessTokenTtlSeconds?: number;
         /** JSON file to persist registered clients to; omitted, they live in memory. */
         clientsFile?: string;
+        /**
+         * JSON file to persist refresh tokens to, so a restart doesn't mean
+         * authorizing again; omitted, they live in memory.
+         */
+        refreshTokensFile?: string;
       };
   /**
    * Serve without sessions: a fresh MCP server per POST, no `Mcp-Session-Id`,
@@ -138,6 +143,7 @@ export async function startDemoHttpServer(
     const provider = new DemoOAuthProvider({
       accessTokenTtlSeconds: oauth.accessTokenTtlSeconds || DEFAULT_ACCESS_TOKEN_TTL_SECONDS,
       clientsFile: oauth.clientsFile,
+      refreshTokensFile: oauth.refreshTokensFile,
     });
     app.use(
       mcpAuthRouter({

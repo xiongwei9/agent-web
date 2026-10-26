@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -27,6 +28,7 @@ export function loadSessionSecret(configured: string | undefined, path: string):
     }
   }
   const secret = randomBytes(32).toString("hex");
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${secret}\n`, { mode: 0o600 });
   return secret;
 }

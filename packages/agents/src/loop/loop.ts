@@ -47,7 +47,7 @@ export interface RunOptions {
   compactionCache?: CompactionCache;
   logger?: AgentLogger;
   /** Emit each model call's request and response as CUSTOM events (see debug.ts). */
-  debugEvents?: boolean;
+  modelCallEvents?: boolean;
 }
 
 /**
@@ -174,7 +174,7 @@ async function drive(
       `[agent] → LLM request (runId=${runId}, iteration=${iteration})\n` +
         JSON.stringify(callOptions.prompt, null, 2),
     );
-    if (options.debugEvents) {
+    if (options.modelCallEvents) {
       subscriber.next(modelRequestEvent(runId, iteration, callOptions));
     }
 
@@ -192,7 +192,7 @@ async function drive(
       `[agent] ← LLM response (runId=${runId}, iteration=${iteration})\n` +
         JSON.stringify(turn.assistantContent, null, 2),
     );
-    if (options.debugEvents) {
+    if (options.modelCallEvents) {
       subscriber.next(modelResponseEvent(runId, iteration, turn));
     }
 

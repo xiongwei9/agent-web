@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -20,15 +20,23 @@ const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_LOG_LEVEL = "info";
 const DEFAULT_PORT = 3000;
 const MCP_OAUTH_CLIENT_NAME = "ai-chat";
-const DEFAULT_MCP_OAUTH_STORE_PATH = ".mcp-oauth.json";
+/**
+ * The repo's `data/`, from both `src/` and the built `dist/`: where the server
+ * keeps its local state unless told otherwise. Gitignored.
+ */
+const DATA_DIR = fileURLToPath(new URL("../../../data/", import.meta.url));
+
+const DEFAULT_MCP_OAUTH_STORE_PATH = join(DATA_DIR, "mcp-oauth.json");
 const MCP_OAUTH_AUTHORIZATION_HINT =
   'In this app the user authorizes it with the "Authorize" button on the banner above the chat.';
 export const MCP_OAUTH_CALLBACK_PATH = "/mcp/oauth/callback";
 
-const DEFAULT_SESSION_SECRET_PATH = ".session-secret";
+const DEFAULT_SESSION_SECRET_PATH = join(DATA_DIR, "session-secret");
 
 /** The repo's `packages/skills/`, from both `src/` and the built `dist/`. */
 const DEFAULT_SKILLS_DIR = fileURLToPath(new URL("../../skills", import.meta.url));
+
+const DEFAULT_SESSIONS_DIR = join(DATA_DIR, "sessions");
 
 const DEFAULT_MAX_TOOL_ITERATIONS = 16;
 const DEFAULT_CODE_MODE_TIMEOUT_MS = 30_000;
@@ -50,16 +58,24 @@ export interface AppConfig {
     secret: string | undefined;
     secretPath: string;
   };
+  /** `AGENT_DEBUG_EVENTS`: send the agent's model call events on to the client. */
+  debugEvents: boolean;
+  /** `SESSIONS_DIR`: where conversations are recorded; undefined records none. */
+  sessionsDir: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const port = readPort(env.PORT, DEFAULT_PORT);
+  const debugEvents = readBoolean(env.AGENT_DEBUG_EVENTS, "AGENT_DEBUG_EVENTS");
+  const sessionsDir = readSessionsDir(env.SESSIONS_DIR);
   return {
+    debugEvents,
+    sessionsDir,
     host: emptyToUndefined(env.HOST) ?? DEFAULT_HOST,
     port,
     session: {
       secret: emptyToUndefined(env.SESSION_SECRET),
-      secretPath: resolve(DEFAULT_SESSION_SECRET_PATH),
+      secretPath: DEFAULT_SESSION_SECRET_PATH,
     },
     logLevel: emptyToUndefined(env.LOG_LEVEL) ?? DEFAULT_LOG_LEVEL,
     agent: {
@@ -83,7 +99,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         store: readMcpOAuthStore(env.MCP_OAUTH_STORE_PATH),
       }),
       skills: { dirs: readSkillsDirs(env.SKILLS_DIRS) },
-      debugEvents: readBoolean(env.AGENT_DEBUG_EVENTS, "AGENT_DEBUG_EVENTS"),
+      // The client gets them with debugEvents; recording keeps them either way.
+      modelCallEvents: debugEvents || sessionsDir !== undefined,
     },
   };
 }
@@ -106,6 +123,19 @@ function readSkillsDirs(value: string | undefined): string[] {
     .map((dir) => dir.trim())
     .filter(Boolean)
     .map((dir) => resolve(dir));
+}
+
+/**
+ * Where conversations are recorded, one folder per thread, relative to the
+ * working directory. Unset means the repo's `data/sessions/`; `off` records
+ * nothing.
+ */
+function readSessionsDir(value: string | undefined): string | undefined {
+  const raw = emptyToUndefined(value)?.trim();
+  if (raw === undefined) {
+    return DEFAULT_SESSIONS_DIR;
+  }
+  return raw === "off" ? undefined : resolve(raw);
 }
 
 /**
@@ -196,8 +226,9 @@ function readMcpOAuthRedirectUrl(env: NodeJS.ProcessEnv, port: number): string {
 
 /**
  * Where MCP OAuth tokens persist, so a restart (e.g. `--watch` on every edit)
- * doesn't mean authorizing again. Relative to the working directory; `off`
- * keeps them in memory only.
+ * doesn't mean authorizing again. Unset means the repo's `data/mcp-oauth.json`;
+ * a set path is relative to the working directory; `off` keeps them in memory
+ * only.
  */
 function readMcpOAuthStore(value: string | undefined): McpOAuthStore | undefined {
   const path = emptyToUndefined(value) ?? DEFAULT_MCP_OAUTH_STORE_PATH;
