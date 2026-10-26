@@ -4,6 +4,7 @@ import { describe, test } from "node:test";
 import { EventType, type BaseEvent, type Message } from "@ag-ui/core";
 import { lastValueFrom, toArray } from "rxjs";
 
+import { MODEL_REQUEST_EVENT, MODEL_RESPONSE_EVENT } from "../src/loop/debug.ts";
 import { runAgentLoop, type RunOptions } from "../src/loop/loop.ts";
 import type { ServerTool } from "../src/tools/types.ts";
 import type { AgentLogger } from "../src/types.ts";
@@ -164,5 +165,57 @@ describe("runAgentLoop abort", () => {
     assert.equal(received.aborted, false);
     subscription.unsubscribe(); // the client disconnected
     assert.equal(received.aborted, true);
+  });
+});
+
+describe("runAgentLoop debug events", () => {
+  test("emits each model call's request and response when enabled", async () => {
+    const tool = counterTool();
+    const { model } = scriptedModel([
+      toolCallTurn("count", {}, "c1"),
+      [
+        ...textTurn("done"),
+        { type: "finish", finishReason: "stop", usage: { inputTokens: 12, outputTokens: 3 } },
+      ],
+    ]);
+    const events = await run({
+      model,
+      persona: "You count.",
+      serverTools: new Map([[tool.name, tool]]),
+      debugEvents: true,
+    });
+
+    const debug = events.filter((event) => event.type === EventType.CUSTOM);
+    assert.deepEqual(
+      debug.map((event) => [event.name, (event.value as { iteration: number }).iteration]),
+      [
+        [MODEL_REQUEST_EVENT, 0],
+        [MODEL_RESPONSE_EVENT, 0],
+        [MODEL_REQUEST_EVENT, 1],
+        [MODEL_RESPONSE_EVENT, 1],
+      ],
+    );
+
+    const first = debug[0]!.value as { prompt: { role: string }[]; tools: { name: string }[] };
+    // The prompt as sent then, not as the loop grew it afterwards.
+    assert.deepEqual(
+      first.prompt.map((message) => message.role),
+      ["system", "user"],
+    );
+    assert.deepEqual(
+      first.tools.map((def) => def.name),
+      ["count"],
+    );
+
+    const last = debug[3]!.value as Record<string, unknown>;
+    assert.deepEqual(last.content, [{ type: "text", text: "done" }]);
+    assert.equal(last.finishReason, "stop");
+    assert.deepEqual(last.usage, { inputTokens: 12, outputTokens: 3 });
+  });
+
+  test("emits none by default", async () => {
+    const { model } = scriptedModel([textTurn("hi")]);
+    const events = await run({ model });
+    assert.equal(events.filter((event) => event.type === EventType.CUSTOM).length, 0);
   });
 });

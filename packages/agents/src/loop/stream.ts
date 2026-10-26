@@ -18,6 +18,8 @@ export interface CollectedToolCall {
 export interface StreamTurn {
   assistantContent: ModelAssistantContentPart[];
   toolCalls: CollectedToolCall[];
+  /** The provider's `finish` part, as reported (shapes vary by provider spec). */
+  finish?: { finishReason: unknown; usage: unknown };
 }
 
 /**
@@ -60,6 +62,7 @@ export async function streamTurn(
   // are still collected and executed; only their TOOL_CALL_* events are skipped.
   const hidden = new Set<string>();
   const toolCalls: CollectedToolCall[] = [];
+  let finish: StreamTurn["finish"];
 
   const startToolCall = (id: string, toolName: string) => {
     if (started.has(id)) {
@@ -175,6 +178,10 @@ export async function streamTurn(
           });
           break;
         }
+        case "finish": {
+          finish = { finishReason: part.finishReason, usage: part.usage };
+          break;
+        }
         case "error": {
           throw part.error instanceof Error ? part.error : new Error(String(part.error));
         }
@@ -199,7 +206,7 @@ export async function streamTurn(
     });
   }
 
-  return { assistantContent, toolCalls };
+  return { assistantContent, toolCalls, finish };
 }
 
 /**

@@ -83,6 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         store: readMcpOAuthStore(env.MCP_OAUTH_STORE_PATH),
       }),
       skills: { dirs: readSkillsDirs(env.SKILLS_DIRS) },
+      debugEvents: readBoolean(env.AGENT_DEBUG_EVENTS, "AGENT_DEBUG_EVENTS"),
     },
   };
 }

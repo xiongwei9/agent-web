@@ -40,6 +40,11 @@ Optional configuration. Every default lives in `src/config.ts`, and
   with a `search_tools` tool, so the prompt stays small however many MCP tools
   there are; `off` puts every declaration in the prompt; `auto` (default)
   inlines them while they're short (~8k characters) and searches beyond that.
+- `AGENT_DEBUG_EVENTS` (`on`/`off`, default `off`) streams every model call —
+  system prompt, messages, tool calls and results, tool declarations, the
+  response and token usage — to the client as AG-UI `CUSTOM` events, which the
+  frontend's Debug panel shows. It exposes full prompts to the browser, so keep
+  it to development
 - `LOG_LEVEL=debug` also logs every full prompt and response, tool results
   included; keep it off where those must not reach the logs
 - `SESSION_SECRET` signs the session cookie (see [Sessions](#sessions))

@@ -40,6 +40,7 @@ the resulting `Message[]` and calls `send`/`stop`/`reset`.
 | [`components/steps/`](src/components/steps) | The agent's working: consecutive tool calls and skill activations fold into one collapsible [`StepGroup`](src/components/steps/StepGroup.tsx), each step a [`ToolCall`](src/components/steps/ToolCall.tsx) (opens to arguments/result) or [`SkillCall`](src/components/steps/SkillCall.tsx). |
 | [`components/hitl/`](src/components/hitl) | Human-in-the-Loop (contract in [`lib/hitl.ts`](src/lib/hitl.ts)): [`HitlDock`](src/components/hitl/HitlDock.tsx) is the open prompt, docked in place of the composer; [`HitlExchange`](src/components/hitl/HitlExchange.tsx) is the answered exchange, its own entry in the transcript. |
 | [`components/cards/`](src/components/cards) | The agent-authored [`A2uiSurface`](src/components/cards/A2uiSurface.tsx), rendered inline as an interactive card. |
+| [`components/debug/`](src/components/debug) | The Debug side panel (header's **Debug** button): every model call of the thread as the server made it — system prompt, messages, tool calls and results, tool declarations, the response and token usage — laid out by message or as raw JSON, plus the client's AG-UI messages. Fed by the server's debug `CUSTOM` events ([`lib/debug.ts`](src/lib/debug.ts)), which need `AGENT_DEBUG_EVENTS=on`. |
 | [`components/ui/`](src/components/ui) | Shared primitives: `Button`, icons, `Markdown`. |
 
 ### Streaming model

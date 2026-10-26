@@ -147,6 +147,7 @@ curl -N http://localhost:3000/agui \
 | `MODEL_BASE_URL` | — | 覆盖 base URL（例如 OpenAI-compatible gateway）。 |
 | `MODEL_NAME` | —（必填） | Model id。 |
 | `AGENT_MAX_TOOL_ITERATIONS` | `16` | 每次 run 的 tool-call iterations 上限。 |
+| `AGENT_DEBUG_EVENTS` | `off` | `on` 时把每次模型调用（system prompt、messages、tool call/result、tool 声明、响应）作为 AG-UI `CUSTOM` 事件推给前端的 Debug 面板；会把完整 prompt 暴露给浏览器，仅用于开发。 |
 | `MCP_SERVERS` | — | 作为 server-side tools 暴露的 MCP servers 的 JSON map。 |
 
 ## 开发

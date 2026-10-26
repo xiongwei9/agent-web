@@ -75,6 +75,8 @@ export type ModelStreamPart =
   | { type: "tool-input-delta"; id: string; delta: string }
   | { type: "tool-input-end"; id: string }
   | { type: "tool-call"; toolCallId: string; toolName: string; input: string }
+  // `usage`/`finishReason` differ in shape between spec v2 and v3; only passed through.
+  | { type: "finish"; finishReason: unknown; usage: unknown }
   | { type: "error"; error: unknown };
 
 export interface LanguageModel {

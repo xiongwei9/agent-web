@@ -1,8 +1,9 @@
-import { Diamond, TriangleAlert } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Bug, Diamond, TriangleAlert } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { useChat } from "../../hooks/useChat";
 import { useSkills } from "../../hooks/useSkills";
+import { DebugPanel } from "../debug/DebugPanel";
 import { HitlDock } from "../hitl/HitlDock";
 import { Button } from "../ui/Button";
 import { Composer } from "./Composer";
@@ -12,12 +13,16 @@ import { MessageList } from "../messages/MessageList";
 /** How close to the bottom (px) still counts as "following" the stream. */
 const STICK_THRESHOLD = 48;
 
+/** Remembers whether the debug panel is open across reloads. */
+const DEBUG_OPEN_KEY = "agui-fe:debug-open";
+
 export function Chat() {
   const {
     messages,
     status,
     error,
     pendingPrompt,
+    modelCalls,
     send,
     submitA2uiAction,
     respondToToolCall,
@@ -25,6 +30,7 @@ export function Chat() {
     reset,
   } = useChat();
   const skills = useSkills();
+  const [debugOpen, setDebugOpen] = useState(readDebugOpen);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Whether to keep the latest message in view as the stream grows. Scrolling
   // up to read releases it; scrolling back down (or sending) re-engages it.
@@ -52,62 +58,102 @@ export function Chat() {
     }
   };
 
+  const toggleDebug = (open: boolean) => {
+    setDebugOpen(open);
+    try {
+      localStorage.setItem(DEBUG_OPEN_KEY, open ? "1" : "0");
+    } catch {
+      // Storage unavailable; the panel just won't stay open across reloads.
+    }
+  };
+
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-center gap-3 border-b border-border px-5 py-3">
-        <Diamond className="size-4 fill-current text-accent" aria-hidden="true" />
-        <h1 className="m-0 text-base font-semibold">AG-UI Chat</h1>
-        <span
-          className={`inline-flex items-center gap-1.5 text-xs ${
-            isRunning ? "text-accent" : "text-muted"
-          }`}
-        >
+    <div className="flex h-full">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+          <Diamond className="size-4 fill-current text-accent" aria-hidden="true" />
+          <h1 className="m-0 text-base font-semibold">AG-UI Chat</h1>
           <span
-            className={`size-1.75 rounded-full ${
-              isRunning ? "animate-pulse-soft bg-accent" : "bg-success"
+            className={`inline-flex items-center gap-1.5 text-xs ${
+              isRunning ? "text-accent" : "text-muted"
             }`}
-            aria-hidden="true"
-          />
-          {isRunning ? "Streaming…" : "Ready"}
-        </span>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="ml-auto"
-          onClick={reset}
-          disabled={messages.length === 0 && !isRunning}
-        >
-          New chat
-        </Button>
-      </header>
+          >
+            <span
+              className={`size-1.75 rounded-full ${
+                isRunning ? "animate-pulse-soft bg-accent" : "bg-success"
+              }`}
+              aria-hidden="true"
+            />
+            {isRunning ? "Streaming…" : "Ready"}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="ml-auto inline-flex items-center gap-1.5"
+            onClick={() => toggleDebug(!debugOpen)}
+            aria-pressed={debugOpen}
+          >
+            <Bug className="size-3.5" aria-hidden="true" />
+            Debug
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={reset}
+            disabled={messages.length === 0 && !isRunning}
+          >
+            New chat
+          </Button>
+        </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef} onScroll={handleScroll}>
-        <div className="mx-auto flex max-w-205 flex-col gap-4 px-5 pb-8 pt-5">
-          <McpStatusBanner />
-          <MessageList messages={messages} isRunning={isRunning} onA2uiAction={submitA2uiAction} />
-          {error ? (
-            <div className="flex items-start gap-2 rounded-xl border border-danger bg-danger/10 px-3.5 py-2.5 text-sm text-danger">
-              <TriangleAlert className="mt-0.75 size-4 shrink-0" />
-              <span className="min-w-0 wrap-break-word">{error}</span>
-            </div>
+        <div className="min-h-0 flex-1 overflow-y-auto" ref={scrollRef} onScroll={handleScroll}>
+          <div className="mx-auto flex max-w-205 flex-col gap-4 px-5 pb-8 pt-5">
+            <McpStatusBanner />
+            <MessageList
+              messages={messages}
+              isRunning={isRunning}
+              onA2uiAction={submitA2uiAction}
+            />
+            {error ? (
+              <div className="flex items-start gap-2 rounded-xl border border-danger bg-danger/10 px-3.5 py-2.5 text-sm text-danger">
+                <TriangleAlert className="mt-0.75 size-4 shrink-0" />
+                <span className="min-w-0 wrap-break-word">{error}</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mx-auto w-full max-w-205">
+          {pendingPrompt ? (
+            <HitlDock
+              key={pendingPrompt.toolCallId}
+              request={pendingPrompt.request}
+              onRespond={(content) => respondToToolCall(pendingPrompt.toolCallId, content)}
+            />
           ) : null}
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-205">
-        {pendingPrompt ? (
-          <HitlDock
-            key={pendingPrompt.toolCallId}
-            request={pendingPrompt.request}
-            onRespond={(content) => respondToToolCall(pendingPrompt.toolCallId, content)}
-          />
-        ) : null}
-        {/* The agent is waiting on the prompt above, so it takes the composer's
+          {/* The agent is waiting on the prompt above, so it takes the composer's
             place until answered. Hidden, not unmounted, to keep any draft. */}
-        <div hidden={pendingPrompt !== undefined}>
-          <Composer onSend={send} onStop={stop} isRunning={isRunning} skills={skills} />
+          <div hidden={pendingPrompt !== undefined}>
+            <Composer onSend={send} onStop={stop} isRunning={isRunning} skills={skills} />
+          </div>
         </div>
       </div>
+      {debugOpen ? (
+        <DebugPanel
+          modelCalls={modelCalls}
+          messages={messages}
+          isRunning={isRunning}
+          onClose={() => toggleDebug(false)}
+        />
+      ) : null}
     </div>
   );
+}
+
+function readDebugOpen(): boolean {
+  try {
+    return localStorage.getItem(DEBUG_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
 }

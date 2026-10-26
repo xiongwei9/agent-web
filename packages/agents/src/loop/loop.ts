@@ -6,6 +6,7 @@ import type { AgentLogger } from "../types.ts";
 import { consoleLogger } from "../shared/logger.ts";
 import { buildModelToolDefs } from "../tools/toolset.ts";
 import { hideApprovalRequests, requestApproval, settleApprovals } from "./approval.ts";
+import { modelRequestEvent, modelResponseEvent } from "./debug.ts";
 import { buildPrompt } from "./prompt.ts";
 import { streamTurn, type CollectedToolCall } from "./stream.ts";
 import { isRecord, parseToolArguments } from "../shared/utils.ts";
@@ -45,6 +46,8 @@ export interface RunOptions {
   /** Remembers each thread's summary across runs; omit to summarize per run. */
   compactionCache?: CompactionCache;
   logger?: AgentLogger;
+  /** Emit each model call's request and response as CUSTOM events (see debug.ts). */
+  debugEvents?: boolean;
 }
 
 /**
@@ -171,6 +174,9 @@ async function drive(
       `[agent] → LLM request (runId=${runId}, iteration=${iteration})\n` +
         JSON.stringify(callOptions.prompt, null, 2),
     );
+    if (options.debugEvents) {
+      subscriber.next(modelRequestEvent(runId, iteration, callOptions));
+    }
 
     // Models number their stream parts per-response (the first text block is
     // always id "0"), so the same ids recur across runs and iterations.
@@ -186,6 +192,9 @@ async function drive(
       `[agent] ← LLM response (runId=${runId}, iteration=${iteration})\n` +
         JSON.stringify(turn.assistantContent, null, 2),
     );
+    if (options.debugEvents) {
+      subscriber.next(modelResponseEvent(runId, iteration, turn));
+    }
 
     if (turn.assistantContent.length > 0) {
       prompt.push({ role: "assistant", content: turn.assistantContent });

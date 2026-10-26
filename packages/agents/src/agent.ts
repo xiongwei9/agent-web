@@ -103,6 +103,7 @@ export function createAgent(config: AgentConfig): Agent {
             compaction,
             compactionCache,
             logger,
+            debugEvents: config.debugEvents,
           }).subscribe(subscriber);
         },
         (error) => {

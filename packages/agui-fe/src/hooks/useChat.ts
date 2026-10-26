@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 
 import { formatA2uiUserMessage, type A2uiActionPayload } from "../lib/a2ui";
 import { AGUI_URL } from "../lib/api";
+import { applyDebugEvent, type ModelCall } from "../lib/debug";
 import {
   findPendingHitlCalls,
   formatCancellation,
@@ -39,6 +40,11 @@ export interface UseChat {
    * that asked it has suspended. Answer it with {@link UseChat.respondToToolCall}.
    */
   pendingPrompt: PendingPrompt | undefined;
+  /**
+   * Every model call of this thread, as the server sent and received it.
+   * Empty unless the server runs with `AGENT_DEBUG_EVENTS=on`.
+   */
+  modelCalls: ModelCall[];
   /** Append a user message and start a run. */
   send: (text: string) => void;
   /** Append the user's A2UI interaction as a user message and resume the run. */
@@ -64,6 +70,7 @@ export function useChat(): UseChat {
   const [messages, setMessages] = useState<Message[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [modelCalls, setModelCalls] = useState<ModelCall[]>([]);
   // Bumped by reset() to force a brand-new thread + agent instance.
   const [threadGeneration, newThread] = useReducer((n: number) => n + 1, 0);
 
@@ -81,12 +88,16 @@ export function useChat(): UseChat {
     setMessages([]);
     setStatus("idle");
     setError(null);
+    setModelCalls([]);
 
     const subscription = agent.subscribe({
       onMessagesChanged: ({ messages: next }) => {
         const snapshot = [...next];
         messagesRef.current = snapshot;
         setMessages(snapshot);
+      },
+      onCustomEvent: ({ event }) => {
+        setModelCalls((calls) => applyDebugEvent(calls, event) ?? calls);
       },
       onRunErrorEvent: ({ event }) => {
         setError(event.message ?? "Agent run failed");
@@ -195,6 +206,7 @@ export function useChat(): UseChat {
     status,
     error,
     pendingPrompt,
+    modelCalls,
     send,
     submitA2uiAction,
     respondToToolCall,

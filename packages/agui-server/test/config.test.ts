@@ -18,6 +18,7 @@ describe("loadConfig defaults", () => {
     });
     assert.deepEqual(agent.execution, { maxToolIterations: 16 });
     assert.deepEqual(agent.codeMode, { enabled: false, timeoutMs: 30_000, toolDiscovery: "auto" });
+    assert.equal(agent.debugEvents, false);
   });
 
   test("a base URL without a provider means an OpenAI-compatible gateway", () => {
@@ -37,6 +38,7 @@ describe("loadConfig defaults", () => {
       MODEL_API: "chat",
       MODEL_CONTEXT_WINDOW: "500000",
       AGENT_MAX_TOOL_ITERATIONS: "4",
+      AGENT_DEBUG_EVENTS: "on",
       MCP_OAUTH_STORE_PATH: "off",
     });
 
@@ -44,6 +46,7 @@ describe("loadConfig defaults", () => {
     assert.equal(agent.languageModel.api, "chat");
     assert.equal(agent.languageModel.contextWindow, 500_000);
     assert.equal(agent.execution.maxToolIterations, 4);
+    assert.equal(agent.debugEvents, true);
   });
 });
 
