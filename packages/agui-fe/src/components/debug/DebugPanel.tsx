@@ -43,7 +43,7 @@ export function DebugPanel({ modelCalls, messages, isRunning, onClose }: DebugPa
 
   return (
     <aside className="fixed inset-0 z-20 flex flex-col bg-elevated md:static md:z-auto md:w-[min(600px,45vw)] md:shrink-0 md:border-l md:border-border">
-      <header className="flex items-center gap-2 border-b border-border px-4 py-3">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
         <h2 className="m-0 text-sm font-semibold">Debug</h2>
         <span className="ml-2 flex items-center gap-1">
           <ToggleChip active={tab === "calls"} onClick={() => setTab("calls")}>

@@ -1,4 +1,4 @@
-import { History, Trash2 } from "lucide-react";
+import { History, PanelLeftClose, Trash2 } from "lucide-react";
 
 import type { SessionSummary } from "../../hooks/useSessions";
 
@@ -10,15 +10,32 @@ interface SessionListProps {
   onDelete: (id: string) => void;
   /** Why the last open or delete failed, if it did. */
   error: string | null;
+  onCollapse: () => void;
 }
 
 /** The left sidebar: recorded sessions to switch between or delete. */
-export function SessionList({ sessions, activeId, onOpen, onDelete, error }: SessionListProps) {
+export function SessionList({
+  sessions,
+  activeId,
+  onOpen,
+  onDelete,
+  error,
+  onCollapse,
+}: SessionListProps) {
   return (
-    <aside className="hidden w-64 shrink-0 flex-col border-r border-border bg-elevated md:flex">
-      <header className="flex items-center gap-2 border-b border-border px-4 py-3.5">
+    <aside className="flex h-full w-64 flex-col border-r border-border bg-elevated">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
         <History className="size-4 text-muted" aria-hidden="true" />
         <h2 className="m-0 text-sm font-semibold">Sessions</h2>
+        <button
+          type="button"
+          className="ml-auto inline-flex cursor-pointer rounded-md border-0 bg-transparent p-1 text-muted hover:text-ink"
+          onClick={onCollapse}
+          aria-label="Collapse sessions"
+          title="Collapse sessions"
+        >
+          <PanelLeftClose className="size-4" />
+        </button>
       </header>
       <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
         {error ? <p className="m-0 px-2 py-1.5 text-xs text-danger">{error}</p> : null}

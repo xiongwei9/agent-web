@@ -1,4 +1,4 @@
-import { Bug, Diamond, TriangleAlert } from "lucide-react";
+import { Bug, Diamond, PanelLeftOpen, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useChat } from "../../hooks/useChat";
@@ -17,6 +17,9 @@ const STICK_THRESHOLD = 48;
 
 /** Remembers whether the debug panel is open across reloads. */
 const DEBUG_OPEN_KEY = "agui-fe:debug-open";
+
+/** Remembers whether the sessions sidebar is collapsed across reloads. */
+const SESSIONS_COLLAPSED_KEY = "agui-fe:sessions-collapsed";
 
 export function Chat() {
   const {
@@ -37,6 +40,7 @@ export function Chat() {
   const sessions = useSessions();
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [debugOpen, setDebugOpen] = useState(readDebugOpen);
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(readSessionsCollapsed);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Whether to keep the latest message in view as the stream grows. Scrolling
   // up to read releases it; scrolling back down (or sending) re-engages it.
@@ -109,19 +113,49 @@ export function Chat() {
     }
   };
 
+  const toggleSessions = (collapsed: boolean) => {
+    setSessionsCollapsed(collapsed);
+    try {
+      localStorage.setItem(SESSIONS_COLLAPSED_KEY, collapsed ? "1" : "0");
+    } catch {
+      // Storage unavailable; the sidebar just won't stay collapsed across reloads.
+    }
+  };
+
   return (
     <div className="flex h-full">
       {sessions.enabled ? (
-        <SessionList
-          sessions={sessions.sessions}
-          activeId={threadId}
-          onOpen={openSession}
-          onDelete={deleteSession}
-          error={sessionError}
-        />
+        // Stays mounted while collapsed so the width can slide; inert keeps the
+        // hidden list out of the tab order.
+        <div
+          className={`hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none md:block ${
+            sessionsCollapsed ? "w-0" : "w-64"
+          }`}
+          inert={sessionsCollapsed}
+        >
+          <SessionList
+            sessions={sessions.sessions}
+            activeId={threadId}
+            onOpen={openSession}
+            onDelete={deleteSession}
+            error={sessionError}
+            onCollapse={() => toggleSessions(true)}
+          />
+        </div>
       ) : null}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-border px-5 py-3">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-5">
+          {sessions.enabled && sessionsCollapsed ? (
+            <button
+              type="button"
+              className="-ml-1 hidden cursor-pointer rounded-md border-0 bg-transparent p-1 text-muted transition-opacity duration-200 hover:text-ink starting:opacity-0 md:inline-flex"
+              onClick={() => toggleSessions(false)}
+              aria-label="Expand sessions"
+              title="Expand sessions"
+            >
+              <PanelLeftOpen className="size-4" />
+            </button>
+          ) : null}
           <Diamond className="size-4 fill-current text-accent" aria-hidden="true" />
           <h1 className="m-0 text-base font-semibold">AG-UI Chat</h1>
           <span
@@ -204,6 +238,14 @@ export function Chat() {
 function readDebugOpen(): boolean {
   try {
     return localStorage.getItem(DEBUG_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function readSessionsCollapsed(): boolean {
+  try {
+    return localStorage.getItem(SESSIONS_COLLAPSED_KEY) === "1";
   } catch {
     return false;
   }
