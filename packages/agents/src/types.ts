@@ -137,6 +137,41 @@ export interface ContextCompactionConfig {
   maxTokens?: number;
   /** Always keep at least this many of the most recent messages verbatim. */
   keepRecentMessages?: number;
+  /**
+   * Where each thread's latest summary persists. Defaults to memory, so after
+   * a restart a long conversation is summarized from scratch again. An app
+   * that keeps conversations should keep their summaries with them, so that
+   * deleting a conversation deletes its summary too.
+   */
+  store?: CompactionStore;
+}
+
+/**
+ * A thread's latest compaction summary and the leading history messages it
+ * stands in for. The client resends the whole history every run; while it
+ * still starts with those messages, the summary replaces them.
+ */
+export interface CompactionSummary {
+  /** How many leading (non-system) history messages the summary covers. */
+  covered: number;
+  /** Chained hash of those messages, to check the history still starts with them. */
+  hash: string;
+  summary: string;
+}
+
+/** Whose summary: a thread, and the user whose run it is (`RunContext.userId`). */
+export interface CompactionThread {
+  threadId: string;
+  userId?: string;
+}
+
+/**
+ * Persists each thread's latest {@link CompactionSummary}. A failing store
+ * never fails a run: the summary is just made again.
+ */
+export interface CompactionStore {
+  load(thread: CompactionThread): Promise<CompactionSummary | undefined>;
+  save(thread: CompactionThread, summary: CompactionSummary): Promise<void>;
 }
 
 /**

@@ -7,7 +7,8 @@ import type { AgentCapability } from "./capability.ts";
 import { a2uiCapability } from "./client-tools/a2ui.ts";
 import { hitlCapability } from "./client-tools/hitl.ts";
 import { withCodeMode } from "./code-mode/toolset.ts";
-import { CompactionCache, resolveCompactionOptions } from "./loop/compaction.ts";
+import { resolveCompactionOptions } from "./loop/compaction.ts";
+import { MemoryCompactionStore } from "./loop/compaction-store.ts";
 import { runAgentLoop } from "./loop/loop.ts";
 import { mcpCapability } from "./mcp/capability.ts";
 import { createMcpConnections } from "./mcp/users.ts";
@@ -56,7 +57,7 @@ export function createAgent(config: AgentConfig): Agent {
     execution.contextCompaction,
     modelConfig.contextWindow,
   );
-  const compactionCache = new CompactionCache();
+  const compactionStore = execution.contextCompaction?.store ?? new MemoryCompactionStore();
 
   const mcp = createMcpConnections(config.mcp, { logger });
   const skills = new SkillsToolset({ dirs: config.skills?.dirs, logger });
@@ -91,6 +92,7 @@ export function createAgent(config: AgentConfig): Agent {
           }
           inner = runAgentLoop({
             threadId: input.threadId,
+            userId: context?.userId,
             runId: input.runId,
             messages: input.messages,
             clientTools: input.tools,
@@ -102,7 +104,7 @@ export function createAgent(config: AgentConfig): Agent {
             expandUserText: tools.expandUserText,
             maxToolIterations: execution.maxToolIterations,
             compaction,
-            compactionCache,
+            compactionStore,
             logger,
             modelCallEvents: config.modelCallEvents,
           }).subscribe(subscriber);

@@ -1,14 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
+import { MemoryCompactionStore } from "../src/loop/compaction-store.ts";
 import {
-  CompactionCache,
   compactPromptIfNeeded,
   estimateTokens,
   resolveCompactionOptions,
   type CompactionOptions,
 } from "../src/loop/compaction.ts";
 import type { ModelMessage } from "../src/model/types.ts";
+import type { CompactionStore, CompactionSummary } from "../src/types.ts";
 import { scriptedModel, textTurn } from "./helpers.ts";
 
 const SYSTEM: ModelMessage = { role: "system", content: "You are helpful." };
@@ -82,8 +83,7 @@ describe("compactPromptIfNeeded", () => {
 
 describe("compactPromptIfNeeded across runs", () => {
   test("reuses a thread's summary instead of summarizing again", async () => {
-    const cache = new CompactionCache();
-    const memory = { cache, threadId: "t1" };
+    const memory = { store: new MemoryCompactionStore(), thread: { threadId: "t1" } };
     const { model, calls } = scriptedModel([textTurn("summary A")]);
 
     // Run 1: over the threshold, summarized once.
@@ -107,8 +107,7 @@ describe("compactPromptIfNeeded across runs", () => {
   });
 
   test("extends the summary incrementally when the history keeps growing", async () => {
-    const cache = new CompactionCache();
-    const memory = { cache, threadId: "t1" };
+    const memory = { store: new MemoryCompactionStore(), thread: { threadId: "t1" } };
     const { model, calls } = scriptedModel([textTurn("summary A"), textTurn("summary B")]);
 
     const first = [SYSTEM, ...history(4)];
@@ -135,8 +134,7 @@ describe("compactPromptIfNeeded across runs", () => {
   });
 
   test("doesn't reuse a summary when the history was edited", async () => {
-    const cache = new CompactionCache();
-    const memory = { cache, threadId: "t1" };
+    const memory = { store: new MemoryCompactionStore(), thread: { threadId: "t1" } };
     const { model, calls } = scriptedModel([textTurn("summary A"), textTurn("summary B")]);
 
     await compactPromptIfNeeded([SYSTEM, ...history(4)], model, options(1_000), signal, memory);
@@ -149,34 +147,70 @@ describe("compactPromptIfNeeded across runs", () => {
   });
 
   test("keeps threads apart", async () => {
-    const cache = new CompactionCache();
+    const store = new MemoryCompactionStore();
     const { model, calls } = scriptedModel([textTurn("summary A")]);
     await compactPromptIfNeeded([SYSTEM, ...history(4)], model, options(1_000), signal, {
-      cache,
-      threadId: "t1",
+      store,
+      thread: { threadId: "t1" },
     });
 
     const prompt = [SYSTEM, ...history(4)];
     const other = await compactPromptIfNeeded(prompt, model, options(100_000), signal, {
-      cache,
-      threadId: "t2",
+      store,
+      thread: { threadId: "t2" },
     });
     assert.equal(other, prompt);
     assert.equal(calls.length, 1);
   });
+
+  test("a failing store doesn't fail compaction", async () => {
+    const failing: CompactionStore = {
+      load: () => Promise.reject(new Error("load failed")),
+      save: () => Promise.reject(new Error("save failed")),
+    };
+    const warnings: string[] = [];
+    const logger = {
+      debug() {},
+      info() {},
+      warn: (message: string) => warnings.push(message),
+      error() {},
+    };
+    const { model, calls } = scriptedModel([textTurn("summary A")]);
+
+    const compacted = await compactPromptIfNeeded(
+      [SYSTEM, ...history(4)],
+      model,
+      options(500),
+      signal,
+      { store: failing, thread: { threadId: "t1" }, logger },
+    );
+    assert.equal(calls.length, 1);
+    assert.ok(isSummary(compacted[1]));
+    assert.equal(warnings.length, 2);
+  });
 });
 
-describe("CompactionCache", () => {
-  test("evicts the least recently used thread", () => {
-    const cache = new CompactionCache(2);
-    const entry = { covered: 1, hash: "h", summary: "s" };
-    cache.set("a", entry);
-    cache.set("b", entry);
-    cache.get("a");
-    cache.set("c", entry);
+const SUMMARY: CompactionSummary = { covered: 4, hash: "h", summary: "s" };
 
-    assert.ok(cache.get("a"));
-    assert.equal(cache.get("b"), undefined);
-    assert.ok(cache.get("c"));
+describe("MemoryCompactionStore", () => {
+  test("evicts the least recently used thread", async () => {
+    const store = new MemoryCompactionStore(2);
+    await store.save({ threadId: "a" }, SUMMARY);
+    await store.save({ threadId: "b" }, SUMMARY);
+    await store.load({ threadId: "a" });
+    await store.save({ threadId: "c" }, SUMMARY);
+
+    assert.ok(await store.load({ threadId: "a" }));
+    assert.equal(await store.load({ threadId: "b" }), undefined);
+    assert.ok(await store.load({ threadId: "c" }));
+  });
+
+  test("keeps users apart on the same thread id", async () => {
+    const store = new MemoryCompactionStore();
+    await store.save({ threadId: "t1", userId: "alice" }, SUMMARY);
+
+    assert.deepEqual(await store.load({ threadId: "t1", userId: "alice" }), SUMMARY);
+    assert.equal(await store.load({ threadId: "t1", userId: "bob" }), undefined);
+    assert.equal(await store.load({ threadId: "t1" }), undefined);
   });
 });

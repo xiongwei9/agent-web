@@ -2,7 +2,7 @@ import { EventType, type BaseEvent, type Context, type Message, type Tool } from
 import { Observable, type Subscriber } from "rxjs";
 
 import { aguiEvent } from "../shared/events.ts";
-import type { AgentLogger } from "../types.ts";
+import type { AgentLogger, CompactionStore } from "../types.ts";
 import { consoleLogger } from "../shared/logger.ts";
 import { buildModelToolDefs } from "../tools/toolset.ts";
 import { hideApprovalRequests, requestApproval, settleApprovals } from "./approval.ts";
@@ -13,7 +13,6 @@ import { isRecord, parseToolArguments } from "../shared/utils.ts";
 import {
   compactPromptIfNeeded,
   resolveCompactionOptions,
-  type CompactionCache,
   type CompactionOptions,
 } from "./compaction.ts";
 import type { ModelCallOptions, ModelMessage, LanguageModel } from "../model/types.ts";
@@ -24,6 +23,8 @@ const FALLBACK_CONTEXT_WINDOW = 128_000;
 
 export interface RunOptions {
   threadId: string;
+  /** Whose run it is (`RunContext.userId`); scopes the thread's compaction summary. */
+  userId?: string;
   runId: string;
   messages: Message[];
   clientTools: Tool[];
@@ -44,7 +45,7 @@ export interface RunOptions {
   /** Resolved context compaction settings. Omit for defaults (128k window). */
   compaction?: CompactionOptions;
   /** Remembers each thread's summary across runs; omit to summarize per run. */
-  compactionCache?: CompactionCache;
+  compactionStore?: CompactionStore;
   logger?: AgentLogger;
   /** Emit each model call's request and response as CUSTOM events (see debug.ts). */
   modelCallEvents?: boolean;
@@ -133,7 +134,9 @@ async function drive(
   const compaction =
     options.compaction ?? resolveCompactionOptions(undefined, FALLBACK_CONTEXT_WINDOW);
   const logger = options.logger ?? consoleLogger;
-  const memory = options.compactionCache ? { cache: options.compactionCache, threadId } : undefined;
+  const memory = options.compactionStore
+    ? { store: options.compactionStore, thread: { threadId, userId: options.userId }, logger }
+    : undefined;
 
   for (let iteration = 0; ; iteration += 1) {
     // Out of tool rounds: one more turn with tools disabled, so the model

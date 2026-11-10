@@ -229,4 +229,51 @@ describe("ConversationStore", () => {
 
     assert.deepEqual(readdirSync(dir), []);
   });
+
+  describe("compactionStore", () => {
+    const summary = { covered: 2, hash: "h", summary: "s" };
+
+    test("keeps the summary in the conversation's folder, across store instances", async () => {
+      const input = runInput("thread-a", [firstMessage]);
+      await record(input, textRun(input, "one"), "alice");
+      await store.compactionStore().save({ threadId: "thread-a", userId: "alice" }, summary);
+
+      assert.deepEqual(JSON.parse(readFileSync(join(dir, "thread-a", "compaction.json"), "utf8")), {
+        userId: "alice",
+        ...summary,
+      });
+      const restarted = new ConversationStore(dir, silentLogger).compactionStore();
+      assert.deepEqual(await restarted.load({ threadId: "thread-a", userId: "alice" }), summary);
+    });
+
+    test("is the conversation's user's only", async () => {
+      const input = runInput("thread-a", [firstMessage]);
+      await record(input, textRun(input, "one"), "alice");
+      const compaction = store.compactionStore();
+      await compaction.save({ threadId: "thread-a", userId: "alice" }, summary);
+
+      assert.equal(await compaction.load({ threadId: "thread-a", userId: "bob" }), undefined);
+      await compaction.save({ threadId: "thread-a", userId: "bob" }, { ...summary, hash: "x" });
+      assert.deepEqual(await compaction.load({ threadId: "thread-a", userId: "alice" }), summary);
+    });
+
+    test("goes with the conversation, and doesn't bring a deleted one back", async () => {
+      const input = runInput("thread-a", [firstMessage]);
+      await record(input, textRun(input, "one"));
+      const compaction = store.compactionStore();
+      await compaction.save({ threadId: "thread-a" }, summary);
+      await store.delete("thread-a");
+
+      assert.equal(await compaction.load({ threadId: "thread-a" }), undefined);
+      await compaction.save({ threadId: "thread-a" }, summary);
+      assert.deepEqual(readdirSync(dir), []);
+    });
+
+    test("ignores a thread id that isn't a plain directory name", async () => {
+      const compaction = store.compactionStore();
+      await compaction.save({ threadId: "../escape" }, summary);
+      assert.equal(await compaction.load({ threadId: "../escape" }), undefined);
+      assert.deepEqual(readdirSync(dir), []);
+    });
+  });
 });

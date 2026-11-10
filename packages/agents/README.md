@@ -62,9 +62,12 @@ model's window in tokens.
   reply.
 - `contextCompaction` summarizes older messages once the prompt passes
   `maxTokens` (default 80% of `contextWindow`). Each thread's latest summary is
-  remembered in memory and reapplied while the history still starts with the
-  messages it covers, so a long conversation is summarized incrementally
-  instead of from scratch every run.
+  remembered and reapplied while the history still starts with the messages it
+  covers, so a long conversation is summarized incrementally instead of from
+  scratch every run. Summaries live in memory unless `store` (a
+  `CompactionStore`, keyed by thread id) keeps them elsewhere, e.g. next to the
+  app's recorded conversations so they survive restarts. A failing store only
+  costs a re-summarization, never the run.
 
 `AgentConfig.logger` takes any pino-style logger (`debug`/`info`/`warn`/
 `error`); the default is the console with `debug` off. `debug` logs every full

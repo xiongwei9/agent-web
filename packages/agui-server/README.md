@@ -132,6 +132,12 @@ apart from the cookie session above.
   agent's model call events per line. To have them, the server turns on the
   agent's `modelCallEvents` whenever it records; `AGENT_DEBUG_EVENTS` only
   decides whether the client gets them too.
+- `compaction.json`: the agent's latest context compaction summary for the
+  thread and the `userId` it belongs to, written when a long conversation is
+  compacted. The agent reapplies it on later runs, so after a restart a
+  reopened long conversation isn't summarized from scratch. It goes with the
+  folder when the conversation is deleted. With `SESSIONS_DIR=off` summaries
+  are kept in memory only.
 
 `GET /sessions` lists the session user's conversations, `GET /sessions/:id`
 returns one for the frontend to reopen, and `DELETE /sessions/:id` deletes its

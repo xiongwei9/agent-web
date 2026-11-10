@@ -4,6 +4,12 @@ import { get_encoding, type Tiktoken } from "tiktoken";
 
 import { safeStringify } from "../shared/utils.ts";
 import { elideSkillContents, findSkillContents } from "../skills/content.ts";
+import type {
+  AgentLogger,
+  CompactionStore,
+  CompactionSummary,
+  CompactionThread,
+} from "../types.ts";
 
 import type {
   ModelCallOptions,
@@ -27,9 +33,10 @@ import type {
  * of them would silently weaken the skill.
  *
  * The client resends the whole history every run, so each thread's latest
- * summary is remembered ({@link CompactionCache}) and reapplied while the
- * history still starts with the messages it covers: a long conversation is
- * summarized once, then incrementally, instead of from scratch every turn.
+ * summary is remembered (a {@link CompactionStore}, in memory or on disk) and
+ * reapplied while the history still starts with the messages it covers: a long
+ * conversation is summarized once, then incrementally, instead of from scratch
+ * every turn.
  */
 export interface CompactionOptions {
   /** Master switch. When false, the prompt is never compacted. */
@@ -67,56 +74,22 @@ export function resolveCompactionOptions(
   };
 }
 
-/** A thread's latest summary and the leading history messages it replaces. */
-interface CachedSummary {
-  /** How many leading (non-system) history messages the summary stands in for. */
-  covered: number;
-  /** {@link chainHash} of those messages, to check the history still starts with them. */
-  hash: string;
-  summary: string;
-}
-
-const DEFAULT_CACHE_SIZE = 500;
-
-/** Each thread's latest summary, least recently used evicted first. */
-export class CompactionCache {
-  private readonly entries = new Map<string, CachedSummary>();
-  private readonly maxEntries: number;
-
-  constructor(maxEntries = DEFAULT_CACHE_SIZE) {
-    this.maxEntries = maxEntries;
-  }
-
-  get(threadId: string): CachedSummary | undefined {
-    const entry = this.entries.get(threadId);
-    if (entry) {
-      this.entries.delete(threadId);
-      this.entries.set(threadId, entry);
-    }
-    return entry;
-  }
-
-  set(threadId: string, entry: CachedSummary): void {
-    this.entries.delete(threadId);
-    this.entries.set(threadId, entry);
-    if (this.entries.size > this.maxEntries) {
-      this.entries.delete(this.entries.keys().next().value!);
-    }
-  }
-}
-
 /** Which thread a prompt belongs to, so its summary can be reused next run. */
 export interface CompactionMemory {
-  cache: CompactionCache;
-  threadId: string;
+  store: CompactionStore;
+  thread: CompactionThread;
+  /** Where store failures are reported; they never fail the run. */
+  logger?: AgentLogger;
 }
+
+type Coverage = Omit<CompactionSummary, "summary">;
 
 /**
  * Summary messages this module inserted, with the original messages each one
  * stands in for — so a later compaction in the same run can extend the cached
  * coverage instead of losing track of it.
  */
-const summaryCoverage = new WeakMap<ModelMessage, Omit<CachedSummary, "summary">>();
+const summaryCoverage = new WeakMap<ModelMessage, Coverage>();
 
 /**
  * Per-message framing overhead in the chat format (role marker + delimiters).
@@ -209,7 +182,7 @@ export async function compactPromptIfNeeded(
   const system = prompt.slice(0, systemEnd);
   let body = prompt.slice(systemEnd);
 
-  const reused = memory ? reuseSummary(body, memory) : undefined;
+  const reused = memory ? await reuseSummary(body, memory) : undefined;
   if (reused) {
     body = reused;
   }
@@ -235,7 +208,7 @@ export async function compactPromptIfNeeded(
   }
   const summary = withSkillContents(brief, older);
 
-  // Extend the coverage of a summary already at the front (from the cache or
+  // Extend the coverage of a summary already at the front (from the store or
   // an earlier iteration of this run) by the original messages now folded in.
   const previous = summaryCoverage.get(older[0]!) ?? { covered: 0, hash: "" };
   const newlyCovered = summaryCoverage.has(older[0]!) ? older.slice(1) : older;
@@ -243,7 +216,9 @@ export async function compactPromptIfNeeded(
     covered: previous.covered + newlyCovered.length,
     hash: chainHash(previous.hash, newlyCovered),
   };
-  memory?.cache.set(memory.threadId, { ...coverage, summary });
+  if (memory) {
+    await saveSummary(memory, { ...coverage, summary });
+  }
 
   return [...system, summaryMessage(summary, coverage), ...recent];
 }
@@ -254,12 +229,23 @@ export async function compactPromptIfNeeded(
  * there's nothing to reuse (no entry, history edited, or a summary is already
  * at the front).
  */
-function reuseSummary(body: ModelMessage[], memory: CompactionMemory): ModelMessage[] | undefined {
-  const cached = memory.cache.get(memory.threadId);
+async function reuseSummary(
+  body: ModelMessage[],
+  memory: CompactionMemory,
+): Promise<ModelMessage[] | undefined> {
+  if (body[0] && summaryCoverage.has(body[0])) {
+    return undefined; // already applied earlier in this run
+  }
+  let cached: CompactionSummary | undefined;
+  try {
+    cached = await memory.store.load(memory.thread);
+  } catch (error) {
+    memory.logger?.warn(`[agent] failed to load compaction summary: ${error}`);
+    return undefined;
+  }
   if (
     !cached ||
     cached.covered >= body.length ||
-    (body[0] && summaryCoverage.has(body[0])) ||
     chainHash("", body.slice(0, cached.covered)) !== cached.hash
   ) {
     return undefined;
@@ -267,7 +253,16 @@ function reuseSummary(body: ModelMessage[], memory: CompactionMemory): ModelMess
   return [summaryMessage(cached.summary, cached), ...body.slice(cached.covered)];
 }
 
-function summaryMessage(summary: string, coverage: Omit<CachedSummary, "summary">): ModelMessage {
+/** Remembers the thread's new summary; a store failure only costs re-summarizing later. */
+async function saveSummary(memory: CompactionMemory, summary: CompactionSummary): Promise<void> {
+  try {
+    await memory.store.save(memory.thread, summary);
+  } catch (error) {
+    memory.logger?.warn(`[agent] failed to save compaction summary: ${error}`);
+  }
+}
+
+function summaryMessage(summary: string, coverage: Coverage): ModelMessage {
   const message: ModelMessage = {
     role: "user",
     content: [{ type: "text", text: `[Earlier conversation summary]\n\n${summary}` }],

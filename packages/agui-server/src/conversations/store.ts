@@ -1,14 +1,20 @@
-import { appendFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { BaseEvent, Message, RunAgentInput } from "@ag-ui/core";
-import { isModelCallEvent, type AgentLogger } from "@ai-chat/agents";
+import {
+  isModelCallEvent,
+  type AgentLogger,
+  type CompactionStore,
+  type CompactionSummary,
+} from "@ai-chat/agents";
 import { Observable } from "rxjs";
 
 import { messagesAfterRun } from "./replay.ts";
 
 const CONVERSATION_FILE = "session.json";
 const MODEL_CALLS_FILE = "model-calls.jsonl";
+const COMPACTION_FILE = "compaction.json";
 /** A thread id names a directory, so only plain ones are recorded. */
 const THREAD_ID_PATTERN = /^[\w-]{1,128}$/;
 const TITLE_MAX_LENGTH = 80;
@@ -31,6 +37,11 @@ export interface ConversationDetail extends ConversationSummary {
   modelCalls: BaseEvent[];
 }
 
+/** `compaction.json`: the agent's latest summary, and whose it is. */
+interface CompactionFile extends CompactionSummary {
+  userId?: string;
+}
+
 interface ConversationFile extends ConversationSummary {
   /** Whose runs recorded it; absent for the shared scope. */
   userId?: string;
@@ -41,7 +52,8 @@ interface ConversationFile extends ConversationSummary {
  * Records each thread to `<dir>/<threadId>/`: `session.json` holds the
  * conversation (rewritten when a run starts and when it ends), and
  * `model-calls.jsonl` gets every model call's request and response appended as
- * they happen, one model call event per line.
+ * they happen, one model call event per line. `compaction.json` holds the
+ * agent's latest context compaction summary (see {@link compactionStore}).
  *
  * These are the "sessions" of `SESSIONS_DIR` and `/sessions`; the code calls
  * them conversations to keep them apart from the cookie session (session.ts).
@@ -109,6 +121,45 @@ export class ConversationStore {
       await rm(join(this.dir, id), { recursive: true, force: true });
       return true;
     });
+  }
+
+  /**
+   * The agent's compaction summaries, kept in each conversation's folder: they
+   * survive restarts, go when the conversation is deleted, and like the
+   * conversation belong to its user. A thread that isn't recorded (another
+   * user's, or deleted) gets none, so its summary lives only in the agent's run.
+   */
+  compactionStore(): CompactionStore {
+    return {
+      // Runs before every model call, so it reads only the small summary file,
+      // which carries its user, and doesn't wait for the recording's writes.
+      load: async ({ threadId, userId }) => {
+        const file = THREAD_ID_PATTERN.test(threadId)
+          ? await this.readCompaction(threadId)
+          : undefined;
+        if (!file || file.userId !== userId) {
+          return undefined;
+        }
+        const { covered, hash, summary } = file;
+        return { covered, hash, summary };
+      },
+      // Queued behind the conversation's writes and deletes; written atomically
+      // so a concurrent load never sees half of it.
+      save: ({ threadId, userId }, summary) =>
+        this.enqueue(threadId, async () => {
+          if (!THREAD_ID_PATTERN.test(threadId)) {
+            return;
+          }
+          const conversation = await this.readConversation(threadId);
+          if (!conversation || conversation.userId !== userId) {
+            return;
+          }
+          const file: CompactionFile = { userId, ...summary };
+          const path = join(this.dir, threadId, COMPACTION_FILE);
+          await writeFile(`${path}.tmp`, `${JSON.stringify(file, null, 2)}\n`);
+          await rename(`${path}.tmp`, path);
+        }),
+    };
   }
 
   /**
@@ -232,6 +283,20 @@ export class ConversationStore {
     }
   }
 
+  private async readCompaction(id: string): Promise<CompactionFile | undefined> {
+    let text: string;
+    try {
+      text = await readFile(join(this.dir, id, COMPACTION_FILE), "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return undefined;
+      }
+      throw error;
+    }
+    const parsed: unknown = JSON.parse(text);
+    return isCompactionFile(parsed) ? parsed : undefined;
+  }
+
   private async readModelCalls(id: string): Promise<BaseEvent[]> {
     let text: string;
     try {
@@ -272,6 +337,19 @@ export class ConversationStore {
   async flush(): Promise<void> {
     await Promise.all(this.queues.values());
   }
+}
+
+function isCompactionFile(value: unknown): value is CompactionFile {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const { covered, hash, summary, userId } = value as Record<string, unknown>;
+  return (
+    typeof covered === "number" &&
+    typeof hash === "string" &&
+    typeof summary === "string" &&
+    (userId === undefined || typeof userId === "string")
+  );
 }
 
 function summarize({ id, title, createdAt, updatedAt }: ConversationFile): ConversationSummary {

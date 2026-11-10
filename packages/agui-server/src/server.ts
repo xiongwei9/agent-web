@@ -108,13 +108,28 @@ export async function buildApp({ config, fastifyOptions = {} }: BuildAppOptions)
     },
   });
 
-  // `debug` includes full prompts and tool results; it's on only at LOG_LEVEL=debug.
-  const agent = createAgent({ ...config.agent, logger: app.log });
-
-  await app.register(healthRoutes);
   const conversations = config.sessionsDir
     ? new ConversationStore(config.sessionsDir, app.log)
     : undefined;
+  const { execution } = config.agent;
+  // `debug` includes full prompts and tool results; it's on only at LOG_LEVEL=debug.
+  const agent = createAgent({
+    ...config.agent,
+    // Compaction summaries live with the recorded conversations; without
+    // recording, in memory.
+    execution: conversations
+      ? {
+          ...execution,
+          contextCompaction: {
+            ...execution.contextCompaction,
+            store: conversations.compactionStore(),
+          },
+        }
+      : execution,
+    logger: app.log,
+  });
+
+  await app.register(healthRoutes);
   // A run is recorded while its model call events are still in the stream;
   // the client gets them only with AGENT_DEBUG_EVENTS on.
   const runAgent: AgentRunner = (input, context) => {
