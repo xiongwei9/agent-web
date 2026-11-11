@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { apiUrl } from "../lib/api";
 
@@ -19,11 +19,13 @@ const POLL_INTERVAL_MS = 3_000;
  * e.g. waiting for the user to finish an OAuth flow in another tab — and stops
  * once they all are; refocusing the window checks again.
  */
-export function useMcpServers(): McpServerInfo[] {
+export function useMcpServers() {
   const [servers, setServers] = useState<McpServerInfo[]>([]);
   const [settled, setSettled] = useState(false);
+  const authorizationVersion = useRef(0);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const version = authorizationVersion.current;
     try {
       // `include`: the session cookie identifies whose MCP servers these are,
       // also when the server is on another origin.
@@ -32,11 +34,31 @@ export function useMcpServers(): McpServerInfo[] {
         return;
       }
       const body = (await response.json()) as { servers: McpServerInfo[] };
+      if (signal?.aborted || version !== authorizationVersion.current) {
+        return;
+      }
       setServers(body.servers);
       setSettled(body.servers.every((server) => server.status === "connected"));
     } catch {
       // Server not up yet, or the request was aborted: the next poll retries.
     }
+  }, []);
+
+  const resetAuthorization = useCallback(async (serverId: string) => {
+    authorizationVersion.current += 1;
+    const response = await fetch(`${MCP_SERVERS_URL}/${encodeURIComponent(serverId)}/oauth/reset`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (!response.ok) {
+      throw new Error("Could not reset authorization. Please try again.");
+    }
+    const server = (await response.json()) as McpServerInfo;
+    // Ignore any poll started before this reset completed, so an old URL
+    // cannot replace the fresh authorization URL in the banner.
+    authorizationVersion.current += 1;
+    setServers((current) => current.map((item) => (item.id === server.id ? server : item)));
+    setSettled(false);
   }, []);
 
   useEffect(() => {
@@ -66,5 +88,5 @@ export function useMcpServers(): McpServerInfo[] {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  return servers;
+  return { servers, resetAuthorization };
 }

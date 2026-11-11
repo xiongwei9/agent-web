@@ -7,8 +7,9 @@ import { after, before, describe, mock, test } from "node:test";
 
 import { DEMO_SCOPE, startDemoHttpServer, type DemoHttpServer } from "@ai-chat/mcp-server-demo";
 
+import { McpOAuthUnsupportedError } from "../src/mcp/errors.ts";
 import { McpToolRegistry } from "../src/mcp/registry.ts";
-import { createFileMcpOAuthStore } from "../src/mcp/oauth/store.ts";
+import { createFileMcpOAuthStore, MemoryMcpOAuthStore } from "../src/mcp/oauth/store.ts";
 import type { McpOAuthStore, McpServerConfig, McpServerInfo } from "../src/types.ts";
 import { submitConsent } from "./helpers.ts";
 
@@ -143,6 +144,99 @@ describe("McpToolRegistry with an OAuth-protected server", () => {
 
     await assert.rejects(registry.finishAuth("not-a-real-state", "code"), /Unknown or expired/);
     assert.equal(serverInfo(registry).status, "needs_auth");
+  });
+
+  test("resets a pending authorization and rejects its old callback", async (t) => {
+    const registry = openRegistry(t, { demo: { url: server.url } });
+    await registry.connect();
+    const oldUrl = new URL(serverInfo(registry).authorizationUrl!);
+    const oldCallback = await submitConsent(oldUrl.href);
+
+    const reset = await registry.resetAuth("demo");
+    const freshUrl = new URL(reset.authorizationUrl!);
+    assert.equal(reset.status, "needs_auth");
+    assert.notEqual(freshUrl.searchParams.get("client_id"), oldUrl.searchParams.get("client_id"));
+    assert.notEqual(freshUrl.searchParams.get("state"), oldUrl.searchParams.get("state"));
+    await assert.rejects(
+      registry.finishAuth(
+        oldCallback.searchParams.get("state")!,
+        oldCallback.searchParams.get("code")!,
+      ),
+      /Unknown or expired OAuth state/,
+    );
+    assert.equal((await authorize(registry)).status, "connected");
+  });
+
+  test("serializes a reset with an in-flight connection", async (t) => {
+    const store = new MemoryMcpOAuthStore();
+    const save = t.mock.method(store, "save");
+    const registry = openRegistry(t, { demo: { url: server.url } }, { store });
+    const connecting = registry.connect();
+    const resetting = registry.resetAuth("demo");
+    await connecting;
+    const reset = await resetting;
+    const clients = new Set(
+      save.mock.calls
+        .map((call) => call.arguments[1]?.clientInformation?.client_id)
+        .filter(Boolean),
+    );
+    assert.equal(clients.size, 2, "registered once on connect and again on reset");
+    assert.equal(serverInfo(registry).authorizationUrl, reset.authorizationUrl);
+    assert.equal((await authorize(registry)).status, "connected");
+  });
+
+  test("rejects resetting an unknown or non-OAuth server", async (t) => {
+    const registry = openRegistry(t, { demo: { url: server.url } }, { oauth: false });
+    await assert.rejects(registry.resetAuth("missing"), McpOAuthUnsupportedError);
+    await assert.rejects(registry.resetAuth("demo"), /does not support OAuth/);
+  });
+
+  test("can reset while an old code exchange is failing", async (t) => {
+    const registry = openRegistry(t, { demo: { url: server.url } });
+    await registry.connect();
+    const oldUrl = new URL(serverInfo(registry).authorizationUrl!);
+    const finishing = registry.finishAuth(oldUrl.searchParams.get("state")!, "invalid-code");
+    const resetting = registry.resetAuth("demo");
+    await assert.rejects(finishing);
+    assert.equal((await resetting).status, "needs_auth");
+    assert.equal((await authorize(registry)).status, "connected");
+  });
+
+  test("a failed reset doesn't fail a concurrent getTools", async (t) => {
+    const plain = await startDemoHttpServer();
+    t.after(() => plain.close());
+    const store = new MemoryMcpOAuthStore();
+    const registry = openRegistry(
+      t,
+      { demo: { url: server.url }, plain: { url: plain.url } },
+      { store },
+    );
+    await registry.connect();
+
+    const save = t.mock.method(store, "save", async () => {
+      throw new Error("disk full");
+    });
+    const resetting = registry.resetAuth("demo");
+    const tools = registry.getTools();
+    // The reset reports its failure to its own caller; the run carries on.
+    await assert.rejects(resetting, /disk full/);
+    assert.ok([...(await tools).keys()].some((name) => name.startsWith("plain__")));
+
+    save.mock.restore();
+    await registry.connect();
+    assert.equal(serverInfo(registry).status, "needs_auth");
+  });
+
+  test("a second callback for the same state doesn't take on the first one's failure", async (t) => {
+    const registry = openRegistry(t, { demo: { url: server.url } });
+    await registry.connect();
+    const callback = await submitConsent(serverInfo(registry).authorizationUrl!);
+    const state = callback.searchParams.get("state")!;
+
+    const failing = registry.finishAuth(state, "invalid-code");
+    const finishing = registry.finishAuth(state, callback.searchParams.get("code")!);
+    await assert.rejects(failing);
+    assert.equal((await finishing).status, "connected");
   });
 
   test("rejects a replayed authorization code", async (t) => {
@@ -370,6 +464,83 @@ describe("McpToolRegistry with a file OAuth store", () => {
     assert.equal(
       await (await second.getTools()).get("demo__echo")!.execute({ text: "no re-auth" }),
       "no re-auth",
+    );
+  });
+
+  test("registers again when the authorization server forgot the stored client", async (t) => {
+    const path = join(dir, "forgotten.json");
+    const first = await startDemoHttpServer({ oauth: true });
+    const { port } = first;
+    const before = openRegistry(
+      t,
+      { demo: { url: first.url } },
+      { store: createFileMcpOAuthStore(path) },
+    );
+    await before.connect();
+    const clientId = (registry: McpToolRegistry) =>
+      new URL(serverInfo(registry).authorizationUrl!).searchParams.get("client_id");
+    const forgotten = clientId(before);
+    // The user never finished authorizing; then both sides restart, and the
+    // authorization server, keeping clients in memory, forgets the registration.
+    await before.close();
+    await first.close();
+    const second = await startDemoHttpServer({ oauth: true, port });
+    t.after(() => second.close());
+
+    const after = openRegistry(
+      t,
+      { demo: { url: second.url } },
+      { store: createFileMcpOAuthStore(path) },
+    );
+    await after.connect();
+    assert.ok(clientId(after));
+    assert.notEqual(clientId(after), forgotten);
+    assert.equal((await authorize(after)).status, "connected");
+  });
+
+  test("resets a forgotten client even when stored tokens have no refresh token", async (t) => {
+    const path = join(dir, "no-refresh.json");
+    const store = createFileMcpOAuthStore(path);
+    const first = await startDemoHttpServer({ oauth: true });
+    const before = openRegistry(t, { demo: { url: first.url } }, { store });
+    await authorize(before);
+    const key = `demo ${first.url}`;
+    const credentials = (await store.load(key))!;
+    const forgotten = credentials.clientInformation!.client_id;
+    // An authorization server may issue access tokens without refresh tokens.
+    delete credentials.tokens!.refresh_token;
+    await store.save(key, credentials);
+    await before.close();
+    await first.close();
+
+    const second = await startDemoHttpServer({ oauth: true, port: first.port });
+    t.after(() => second.close());
+    const after = openRegistry(
+      t,
+      { demo: { url: second.url } },
+      {
+        store: createFileMcpOAuthStore(path),
+      },
+    );
+    await after.connect();
+    const staleUrl = serverInfo(after).authorizationUrl!;
+    const rejected = await fetch(staleUrl, { redirect: "manual" });
+    assert.equal(rejected.status, 400);
+    assert.equal(rejected.headers.get("location"), null);
+    const rejection = (await rejected.json()) as { error: string };
+    assert.equal(rejection.error, "invalid_client");
+
+    const reset = await after.resetAuth("demo");
+    assert.notEqual(new URL(reset.authorizationUrl!).searchParams.get("client_id"), forgotten);
+    assert.equal((await createFileMcpOAuthStore(path).load(key))?.tokens, undefined);
+    await assert.rejects(
+      after.finishAuth(new URL(staleUrl).searchParams.get("state")!, "code"),
+      /Unknown or expired/,
+    );
+    assert.equal((await authorize(after)).status, "connected");
+    assert.equal(
+      await (await after.getTools()).get("demo__echo")!.execute({ text: "recovered" }),
+      "recovered",
     );
   });
 

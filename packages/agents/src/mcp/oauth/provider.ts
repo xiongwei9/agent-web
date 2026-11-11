@@ -27,6 +27,12 @@ const DEFAULT_CLIENT_NAME = "ai-chat agent";
  * The client registration, tokens, and discovery state go to the configured
  * {@link McpOAuthStore}; the in-flight authorization (state, PKCE verifier,
  * URL) stays in memory, so a restart mid-flow just starts a new one.
+ *
+ * A stored registration that never got tokens is dropped before a new
+ * authorization starts, so the SDK registers again: the authorization server
+ * may have forgotten it (a restart without persistence), and then `/authorize`
+ * answers `invalid_client` on its own page instead of redirecting back, so the
+ * flow could never learn it should re-register.
  */
 export class McpOAuthClientProvider implements OAuthClientProvider {
   /** Where the user has to go to approve this client, while authorization is pending. */
@@ -35,6 +41,11 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   pendingState: string | undefined;
 
   private verifier: string | undefined;
+  /**
+   * Whether the authorization server accepted the stored client registration
+   * while this provider existed: it registered it, or issued tokens to it.
+   */
+  private clientAccepted = false;
   private readonly config: McpOAuthConfig;
   private readonly store: McpOAuthStore;
   private readonly storeKey: string;
@@ -66,10 +77,19 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   async clientInformation(): Promise<OAuthClientInformationMixed | undefined> {
-    return (await this.credentials()).clientInformation;
+    const { clientInformation, tokens } = await this.credentials();
+    // No tokens and nothing vouching for the registration: an authorization
+    // is about to start, possibly with a client the server no longer knows.
+    // Not while one is in flight: its code must be exchanged with this client.
+    if (clientInformation && !tokens && !this.clientAccepted && this.pendingState === undefined) {
+      await this.update({ clientInformation: undefined });
+      return undefined;
+    }
+    return clientInformation;
   }
 
   async saveClientInformation(clientInformation: OAuthClientInformationMixed): Promise<void> {
+    this.clientAccepted = true;
     await this.update({ clientInformation });
   }
 
@@ -78,6 +98,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
+    this.clientAccepted = true;
     await this.update({ tokens });
     this.authorizationUrl = undefined;
     this.pendingState = undefined;
@@ -109,8 +130,15 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   async invalidateCredentials(
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
+    if (scope === "all") {
+      this.authorizationUrl = undefined;
+      this.pendingState = undefined;
+    }
     if (scope === "all" || scope === "verifier") {
       this.verifier = undefined;
+    }
+    if (scope === "all" || scope === "client") {
+      this.clientAccepted = false;
     }
     await this.update({
       ...(scope === "all" || scope === "client" ? { clientInformation: undefined } : {}),

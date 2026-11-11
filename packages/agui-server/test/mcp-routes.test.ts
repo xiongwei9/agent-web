@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, afterEach, before, beforeEach, describe, mock, test } from "node:test";
@@ -82,6 +82,63 @@ describe("MCP routes", () => {
     assert.equal((await getServers(app, browser))[0]?.status, "needs_auth");
   });
 
+  test("resets only the session user's authorization and completes the fresh flow", async () => {
+    const [original] = await getServers(app, browser);
+    const oldCallback = await submitConsent(original!.authorizationUrl!);
+    const otherBrowser = new Browser();
+    const [other] = await getServers(app, otherBrowser);
+
+    const response = await browser.request(app, {
+      method: "POST",
+      url: "/mcp/servers/demo/oauth/reset",
+    });
+    assert.equal(response.statusCode, 200);
+    const reset = response.json<McpServerInfo>();
+    assert.equal(reset.status, "needs_auth");
+    assert.notEqual(reset.authorizationUrl, original!.authorizationUrl);
+    assert.equal(
+      (await getServers(app, otherBrowser))[0]?.authorizationUrl,
+      other!.authorizationUrl,
+    );
+
+    const stale = await app.inject({
+      method: "GET",
+      url: oldCallback.pathname + oldCallback.search,
+    });
+    assert.equal(stale.statusCode, 400);
+    assert.match(stale.body, /Unknown or expired OAuth state/);
+    const callback = await submitConsent(reset.authorizationUrl!);
+    const authorized = await app.inject({
+      method: "GET",
+      url: callback.pathname + callback.search,
+    });
+    assert.equal(authorized.statusCode, 200);
+    assert.equal((await getServers(app, browser))[0]?.status, "connected");
+  });
+
+  test("rejects resetting an unknown server", async () => {
+    const response = await browser.request(app, {
+      method: "POST",
+      url: "/mcp/servers/missing/oauth/reset",
+    });
+    assert.equal(response.statusCode, 404);
+  });
+
+  test("rejects resetting a server without OAuth", async () => {
+    // A stdio server: never spawned, the reset is refused before connecting.
+    const stdio = await startApp({ local: { command: "node", args: ["--version"] } });
+    try {
+      const response = await browser.request(stdio, {
+        method: "POST",
+        url: "/mcp/servers/local/oauth/reset",
+      });
+      assert.equal(response.statusCode, 400);
+      assert.match(response.json<{ message: string }>().message, /does not support OAuth/);
+    } finally {
+      await stdio.close();
+    }
+  });
+
   test("rejects a callback with an unknown state", async () => {
     await getServers(app);
     const response = await app.inject({
@@ -121,6 +178,27 @@ describe("MCP OAuth persistence", () => {
     mock.restoreAll();
     await demo.close();
     await rm(dir, { recursive: true, force: true });
+  });
+
+  test("answers 500 when the reset can't reach the credential store", async () => {
+    // The store's "directory" is a regular file, so it can be neither read nor written.
+    const blocker = join(dir, "blocker");
+    await writeFile(blocker, "");
+    const app = await startApp(
+      { demo: { url: demo.url } },
+      { storePath: join(blocker, "tokens.json") },
+    );
+    try {
+      const response = await new Browser().request(app, {
+        method: "POST",
+        url: "/mcp/servers/demo/oauth/reset",
+      });
+      assert.equal(response.statusCode, 500);
+      // The cause goes to the log, not to the browser.
+      assert.deepEqual(response.json(), { message: "Could not reset the authorization" });
+    } finally {
+      await app.close();
+    }
   });
 
   test("a restarted server reuses the stored tokens", async () => {

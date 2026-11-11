@@ -82,6 +82,10 @@ export class McpUserConnections implements McpConnections {
     throw new Error("Unknown or expired OAuth state");
   }
 
+  resetAuth(serverId: string, userId?: string): Promise<McpServerInfo> {
+    return this.forUser(userId).resetAuth(serverId);
+  }
+
   async close(): Promise<void> {
     const registries = [...this.users.values()].map((entry) => entry.registry);
     this.users.clear();

@@ -79,11 +79,18 @@ user to the banner. `MCP_OAUTH_REDIRECT_URL` overrides the callback URL sent to
 the authorization server (default `http://localhost:$PORT/mcp/oauth/callback`);
 it must still reach this route.
 
+If the authorization page reports an invalid or unknown client, use the banner's
+"Reset authorization" button, then "Authorize" again. Reset calls
+`POST /mcp/servers/:id/oauth/reset`, clears only the session user's credentials
+and pending flow for that server, and obtains a fresh authorization URL.
+Callbacks from the replaced flow are rejected.
+
 Tokens persist in `MCP_OAUTH_STORE_PATH` (default the repo's
 `data/mcp-oauth.json`, gitignored), so a restart, including `--watch` reloads,
 doesn't mean authorizing again. The file holds plain-text tokens with mode 0600.
 Set `off` to keep them in memory only. Each user's tokens are stored under
-their own key.
+their own key; entries unused for 90 days are dropped, and that user
+authorizes again.
 
 ## Sessions
 

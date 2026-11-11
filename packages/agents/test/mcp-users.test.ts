@@ -95,6 +95,25 @@ describe("McpUserConnections", () => {
     assert.equal(connections.status("alice")[0]?.status, "needs_auth");
   });
 
+  test("resets only the selected user's authorization", async (t) => {
+    const connections = open(t, server.url);
+    await authorize(connections, "alice");
+    await connections.connect("bob");
+    const bobUrl = connections.status("bob")[0]!.authorizationUrl!;
+    const callback = await submitConsent(bobUrl);
+
+    const reset = await connections.resetAuth("demo", "alice");
+    assert.equal(reset.status, "needs_auth");
+    assert.equal(connections.status("bob")[0]?.authorizationUrl, bobUrl);
+    await connections.finishAuth(
+      callback.searchParams.get("state")!,
+      callback.searchParams.get("code")!,
+    );
+    assert.equal(connections.status("bob")[0]?.status, "connected");
+    assert.equal((await connections.forUser("alice").getTools()).size, 0);
+    assert.equal((await authorize(connections, "alice")).status, "connected");
+  });
+
   test("rejects a state no user started", async (t) => {
     const connections = open(t, server.url);
     await connections.connect("alice");

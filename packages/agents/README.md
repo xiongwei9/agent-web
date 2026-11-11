@@ -157,7 +157,24 @@ app-specific directions to both, e.g. where the Authorize button is.
 Client registrations and tokens live in `oauth.store`. It defaults to memory, so
 a restart means authorizing again. `createFileMcpOAuthStore(path)` persists them
 to a JSON file (mode 0600, plain-text tokens; keep it out of version control),
-keyed by user, server id, and URL.
+keyed by user, server id, and URL. Each entry records when it was last used;
+one unused for `maxIdleMs` (default 90 days) is dropped, since every new
+browser or cleared cookie adds a user whose entries would otherwise stay
+forever. `maxIdleMs` must be positive and finite. Reads update last use in
+memory on every access; usage timestamps are checkpointed every day, or half
+of `maxIdleMs` when shorter. After a restart, last use is known only up to
+that checkpoint interval.
+
+A stored client registration that never got tokens is dropped before a new
+authorization starts, so the SDK registers the client again. An authorization
+server that forgot the registration (say, a restart without persistence)
+answers `/authorize` with `invalid_client` on its own page and never redirects
+back. This automatic recovery covers stored registrations without tokens;
+existing tokens without a refresh token can still lead to a stale client URL.
+If an authorization page reports an invalid or unknown client, call
+`mcp.resetAuth(serverId, userId)`. It clears only that user's credentials and
+pending flow for that server, then reconnects to obtain a fresh authorization
+URL. Old callbacks are rejected, and the user authorizes the new client again.
 
 ## Tests
 

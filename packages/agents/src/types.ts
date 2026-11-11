@@ -60,6 +60,14 @@ export interface McpConnections {
    * `state` matches no pending authorization.
    */
   finishAuth(state: string, code: string): Promise<McpServerInfo>;
+  /**
+   * Clears this user's stored credentials and any pending flow for one OAuth
+   * server, then reconnects to obtain a fresh authorization URL. Use when the
+   * authorization server rejects a stale client without redirecting back.
+   * Throws `McpOAuthUnsupportedError` for a server that isn't configured or
+   * doesn't use OAuth.
+   */
+  resetAuth(serverId: string, userId?: string): Promise<McpServerInfo>;
   close(): Promise<void>;
 }
 

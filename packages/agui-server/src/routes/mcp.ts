@@ -1,4 +1,4 @@
-import type { McpConnections } from "@ai-chat/agents";
+import { McpOAuthUnsupportedError, type McpConnections } from "@ai-chat/agents";
 import type { FastifyPluginAsyncZod } from "fastify-type-provider-zod";
 import { z } from "zod";
 
@@ -47,6 +47,43 @@ export const mcpRoutes: FastifyPluginAsyncZod<McpRoutesOptions> = async (app, { 
       const userId = sessionUserId(request, reply);
       await mcp.connect(userId);
       return { servers: mcp.status(userId) };
+    },
+  );
+
+  app.post(
+    "/mcp/servers/:id/oauth/reset",
+    {
+      schema: {
+        tags: ["mcp"],
+        summary: "Restart MCP OAuth authorization",
+        description:
+          "Clears the session user's credentials and pending authorization for one server, " +
+          "then reconnects to obtain a fresh authorization URL.",
+        params: z.object({ id: z.string().min(1) }),
+        response: {
+          200: serverInfoSchema,
+          400: z.object({ message: z.string() }),
+          404: z.object({ message: z.string() }),
+          500: z.object({ message: z.string() }),
+        },
+      },
+    },
+    async (request, reply) => {
+      const userId = sessionUserId(request, reply);
+      if (!mcp || !mcp.status(userId).some((server) => server.id === request.params.id)) {
+        return reply.status(404).send({ message: "Unknown MCP server" });
+      }
+      try {
+        return await mcp.resetAuth(request.params.id, userId);
+      } catch (error) {
+        // A server without OAuth is the client's mistake; anything else (the
+        // credential store, the authorization server) is ours.
+        if (error instanceof McpOAuthUnsupportedError) {
+          return reply.status(400).send({ message: error.message });
+        }
+        request.log.error(error, "mcp oauth reset failed");
+        return reply.status(500).send({ message: "Could not reset the authorization" });
+      }
     },
   );
 

@@ -13,6 +13,7 @@ import type {
   McpToolApproval,
 } from "../types.ts";
 import { consoleLogger } from "../shared/logger.ts";
+import { McpOAuthUnsupportedError } from "./errors.ts";
 import { McpOAuthClientProvider } from "./oauth/provider.ts";
 import { MemoryMcpOAuthStore } from "./oauth/store.ts";
 import {
@@ -174,16 +175,57 @@ export class McpToolRegistry implements McpConnections {
       throw new Error("Unknown or expired OAuth state");
     }
 
-    const result = await auth(entry.oauth, {
-      serverUrl: entry.config.url,
-      authorizationCode: code,
-    });
-    if (result !== "AUTHORIZED") {
-      throw new Error(`MCP server "${entry.id}" did not authorize the client`);
+    // Another operation's failure is its own caller's to report; once it
+    // settles, look the state up again (a reset may have retired it).
+    if (entry.loading) {
+      await entry.loading.catch(() => {});
+      return this.finishAuth(state, code);
     }
 
-    entry.status = "pending";
-    await this.load(entry);
+    const { oauth, config } = entry;
+    entry.loading = (async () => {
+      const result = await auth(oauth, {
+        serverUrl: config.url,
+        authorizationCode: code,
+      });
+      if (result !== "AUTHORIZED") {
+        throw new Error(`MCP server "${entry.id}" did not authorize the client`);
+      }
+
+      entry.status = "pending";
+      await this.loadServer(entry);
+    })().finally(() => {
+      entry.loading = undefined;
+    });
+    await entry.loading;
+    return toServerInfo(entry);
+  }
+
+  async resetAuth(serverId: string): Promise<McpServerInfo> {
+    const entry = this.entries.find((candidate) => candidate.id === serverId);
+    if (!entry?.oauth || isStdioServerConfig(entry.config)) {
+      throw new McpOAuthUnsupportedError(serverId);
+    }
+    // Serialize resets with connection attempts and code exchanges: an older
+    // flow must not write its credentials over a newly registered client.
+    if (entry.loading) {
+      await entry.loading.catch(() => {});
+      return this.resetAuth(serverId);
+    }
+
+    const { oauth } = entry;
+    entry.loading = (async () => {
+      this.dropClient(entry);
+      entry.status = "pending";
+      entry.tools = [];
+      entry.error = undefined;
+      entry.retryAt = 0;
+      await oauth.invalidateCredentials("all");
+      await this.loadServer(entry);
+    })().finally(() => {
+      entry.loading = undefined;
+    });
+    await entry.loading;
     return toServerInfo(entry);
   }
 
@@ -215,7 +257,9 @@ export class McpToolRegistry implements McpConnections {
     entry.loading ??= this.loadServer(entry).finally(() => {
       entry.loading = undefined;
     });
-    return entry.loading;
+    // `loading` may be a reset or a code exchange, which reject to their own
+    // caller; a connection attempt only waits for it to settle.
+    return entry.loading.catch(() => {});
   }
 
   private async loadServer(entry: McpServerEntry): Promise<void> {
